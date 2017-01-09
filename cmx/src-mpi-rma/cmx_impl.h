@@ -18,6 +18,23 @@ typedef struct {
     int size;
 } local_state;
 
+typedef struct {
+  MPI_Win win;
+  MPI_Comm comm;
+  cmxInt bytes;
+  int rank;
+  void *buf;
+} _cmx_handle;
+
+typedef struct {
+  MPI_Request request;
+  MPI_Win win;
+  int active;
+#ifdef USE_MPI_FLUSH_LOCAL
+  int remote_proc;
+#endif
+} _cmx_request;
+
 extern local_state l_state;
 
 #define DEBUG 0
