@@ -1,36 +1,30 @@
-#   include "config.h"
-#endif
-
 #include <stdlib.h>
 #include <assert.h>
 
 #include "groups.h"
-#include "cmx_impl.h"
 #include "cmx.h"
 
 /*
 #define USE_MPI_ERRORS_RETURN
 */
 
-typedef cmx_group_t cmx_igroup_t*;
-
 /* the HEAD of the group linked list */
-cmx_group_t *group_list = NULL;
-
+cmx_igroup_t *group_list = NULL;
 
 /* static functions implemented in this file */
-static void cmx_create_group(cmx_group_t *group);
-static void cmx_igroup_finalize(cmx_igroup_t *igroup);
+static void cmx_create_group(cmx_igroup_t **group);
+static void cmx_igroup_finalize(cmx_igroup_t *group);
 
 cmx_igroup_t *CMX_GROUP_WORLD;
 
 /**
- * Creates a cmx group.
+ * Creates a cmx group object and puts it in the linked list of groups. Does not
+ * assign properties to the group
  */
-void cmx_create_group(cmx_group_t *group)
+void cmx_create_group(cmx_igroup_t **group)
 {
-  cmx_igroup_t new_group_list_item = NULL;
-  cmx_igroup_t last_group_list_item = NULL;
+  cmx_igroup_t *new_group_list_item = NULL;
+  cmx_igroup_t *last_group_list_item = NULL;
 
   /* find the last group in the group linked list */
   last_group_list_item = group_list;
@@ -39,7 +33,7 @@ void cmx_create_group(cmx_group_t *group)
   }
 
   /* create, init, and insert the new node for the linked list */
-  new_group_list_item = malloc(sizeof(cmx_igroup_t));
+  new_group_list_item = (cmx_igroup_t*)malloc(sizeof(cmx_igroup_t));
   new_group_list_item->comm = MPI_COMM_NULL;
   new_group_list_item->group = MPI_GROUP_NULL;
   new_group_list_item->next = NULL;
@@ -51,11 +45,10 @@ void cmx_create_group(cmx_group_t *group)
 }
 
 
-int cmx_group_rank(cmx_group_t group, int *rank)
+int cmx_group_rank(cmx_igroup_t *group, int *rank)
 {
   int status;
-  cmx_igroup_t *igroup = group;
-  status = MPI_Group_rank(igroup->group, rank);
+  status = MPI_Group_rank(group->group, rank);
   if (status != MPI_SUCCESS) {
     cmx_error("MPI_Group_rank: Failed ", status);
   }
@@ -64,12 +57,11 @@ int cmx_group_rank(cmx_group_t group, int *rank)
 }
 
 
-int cmx_group_size(cmx_group_t group, int *size)
+int cmx_group_size(cmx_igroup_t *group, int *size)
 {
   int status;
 
-  cmx_igroup_t *igroup = group;
-  status = MPI_Group_size(igroup->group, size);
+  status = MPI_Group_size(group->group, size);
   if (status != MPI_SUCCESS) {
     cmx_error("MPI_Group_size: Failed ", status);
   }
@@ -78,23 +70,27 @@ int cmx_group_size(cmx_group_t group, int *size)
 }
 
 
-int cmx_group_comm(cmx_group_t group, MPI_Comm *comm)
+/** 
+ * Returns the MPI_Comm object backing the given group. 
+ * 
+ * @param group: group handle 
+ * @param comm the communicator handle 
+ */ 
+int cmx_group_comm(cmx_igroup_t *group, MPI_Comm *comm)
 {
-  cmx_igroup_t *igroup = group;
-  *comm = igroup->comm;
+  *comm = group->comm;
   return CMX_SUCCESS;
 }
 
 
-int cmx_group_translate_world(cmx_igroup_t group, int group_rank, int *world_rank)
+int cmx_group_translate_world(cmx_igroup_t *group, int group_rank, int *world_rank)
 {
   if (CMX_GROUP_WORLD == group) {
     *world_rank = group_rank;
   }
   else {
-    cmx_igroup_t *igroup = group;
     int status = MPI_Group_translate_ranks(
-        igroup->group, 1, &group_rank, CMX_GROUP_WORLD->group, world_rank);
+        group->group, 1, &group_rank, CMX_GROUP_WORLD->group, world_rank);
     if (status != MPI_SUCCESS) {
       cmx_error("MPI_Group_translate_ranks: Failed ", status);
     }
@@ -107,30 +103,30 @@ int cmx_group_translate_world(cmx_igroup_t group, int group_rank, int *world_ran
 /**
  * Destroys the given cmx group.
  */
-void cmx_igroup_finalize(cmx_igroup_t igroup)
+void cmx_igroup_finalize(cmx_igroup_t *group)
 {
   int status;
   win_link_t *curr_win;
   win_link_t *next_win;
 
-  assert(igroup);
+  assert(group);
 
-  if (igroup->group != MPI_GROUP_NULL) {
-    status = MPI_Group_free(&igroup->group);
+  if (group->group != MPI_GROUP_NULL) {
+    status = MPI_Group_free(&group->group);
     if (status != MPI_SUCCESS) {
       cmx_error("MPI_Group_free: Failed ", status);
     }
   }
 
-  if (igroup->comm != MPI_COMM_NULL) {
-    status = MPI_Comm_free(&igroup->comm);
+  if (group->comm != MPI_COMM_NULL) {
+    status = MPI_Comm_free(&group->comm);
     if (status != MPI_SUCCESS) {
       cmx_error("MPI_Comm_free: Failed ", status);
     }
   }
 
   /* Remove all windows associated with this group */
-  curr_win = igroup->win_list;
+  curr_win = group->win_list;
   while (curr_win != NULL) {
     next_win = curr_win->next;
     MPI_Win_free(&curr_win->win);
@@ -140,15 +136,14 @@ void cmx_igroup_finalize(cmx_igroup_t igroup)
 }
 
 
-int cmx_group_free(cmx_group_t group)
+int cmx_group_free(cmx_igroup_t *group)
 {
   cmx_igroup_t *current_group_list_item = group_list;
   cmx_igroup_t *previous_group_list_item = NULL;
 
-  cmx_igroup_t *igroup = group;
   /* find the group to free */
   while (current_group_list_item != NULL) {
-    if (current_group_list_item == igroup) {
+    if (current_group_list_item == group) {
       break;
     }
     previous_group_list_item = current_group_list_item;
@@ -169,7 +164,7 @@ int cmx_group_free(cmx_group_t group)
 
 
 int cmx_group_create(
-    int n, int *pid_list, cmx_group_t group_parent, cmx_group_t *group_child)
+    int n, int *pid_list, cmx_igroup_t *group_parent, cmx_igroup_t **group_child)
 {
   int status;
   int grp_me;
@@ -244,9 +239,10 @@ int cmx_group_create(
  */
 void cmx_group_init() 
 {
-  /* create the head of the group linked list */
+  /* create the head of the group linked list on the world group
+     and set it equal to CMX_GROUP_WORLD */
   assert(group_list == NULL);
-  group_list = malloc(sizeof(cmx_group_t));
+  group_list = malloc(sizeof(cmx_igroup_t));
   group_list->next = NULL;
   group_list->win_list = NULL;
 #ifdef USE_MPI_ERRORS_RETURN
@@ -257,7 +253,6 @@ void cmx_group_init()
   group_list->comm = l_state.world_comm;
   MPI_Comm_group(group_list->comm, &(group_list->group));
   CMX_GROUP_WORLD = group_list;
-
 }
 
 
@@ -285,7 +280,7 @@ void cmx_group_finalize()
 /**
  *  Add an MPI window to the window list in the group
  */
-void cmx_igroup_add_win(cmx_group_t group, MPI_Win win)
+void cmx_igroup_add_win(cmx_igroup_t *group, MPI_Win win)
 {
   cmx_igroup_t *current_group_list_item = group;
   win_link_t *curr_win = NULL;
@@ -314,7 +309,7 @@ void cmx_igroup_add_win(cmx_group_t group, MPI_Win win)
  *  Remove an MPI window from the window list in the group. This only removes
  *  the window from the group list, it does not get rid of the window itself.
  */
-void cmx_igroup_delete_win(cmx_group_t group, MPI_Win win)
+void cmx_igroup_delete_win(cmx_igroup_t *group, MPI_Win win)
 {
   cmx_igroup_t *current_group_list_item = group;
   win_link_t *curr_win;

@@ -6,11 +6,13 @@
 
 #include <stdlib.h>
 
+#include "cmx_impl.h"
+
 #if defined(__cplusplus) || defined(c_plusplus)
 extern "c" {
 #endif
 
-typedef _cmxhandle cmx_handle_t;
+typedef _cmx_handle cmx_handle_t;
 
 typedef struct {
     void **loc; /**< array of local starting addresses */
@@ -19,9 +21,7 @@ typedef struct {
     cmxInt bytes; /**< length in bytes for each src[i]/dst[i] pair */
 } cmx_giov_t;
 
-typedef _cmxrequest cmx_request_t;
-
-typedef _cmxgroup cmx_group_t;
+typedef _cmx_request cmx_request_t;
 
 #define CMX_SUCCESS 0
 #define CMX_FAILURE 1
@@ -333,7 +333,7 @@ extern int cmx_accs(
         int op, void *scale,
         void *src, cmxInt *src_stride,
         cmxInt dst_offset, cmxInt *dst_stride,
-        cmxIntInt *count, int stride_levels,
+        cmxInt *count, int stride_levels,
         int proc, cmx_handle_t cmx_hdl);
 
 /**
@@ -352,7 +352,7 @@ extern int cmx_accs(
 extern int cmx_accv(
         int op, void *scale,
         cmx_giov_t *darr, int len,
-        int proc, cmx_group_t group);
+        int proc, cmx_handle_t cmx_hdl);
 
 /**
  * Nonblocking Contiguous Atomic Accumulate.
@@ -420,7 +420,7 @@ extern int cmx_nbaccs(
 extern int cmx_nbaccv(
         int op, void *scale,
         cmx_giov_t *darr, cmxInt len,
-        int proc, cmx_group_t group,
+        int proc, cmx_handle_t cmx_hdl,
         cmx_request_t *req);
 
 /**
@@ -460,7 +460,7 @@ extern int cmx_gets(
         void *dst, cmxInt *dst_stride,
         cmxInt src_offset, cmxInt *src_stride,
         cmxInt *count, int stride_levels,
-        int proc, cmx_group_t group);
+        int proc, cmx_handle_t cmx_hdl);
 
 /**
  * Vector Get.

@@ -1,7 +1,3 @@
-#if HAVE_CONFIG_H
-#   include "config.h"
-#endif
-
 /* C and/or system headers */
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,8 +15,6 @@
 #include "groups.h"
 
 #define DEBUG 0
-
-
 
 /*
 #define USE_MPI_REQUESTS
@@ -53,7 +47,7 @@ int *_mutex_num;
 int _mutex_total;
 
 /* Maximum number of outstanding non-blocking requests */
-static int nb_max_outstanding = CMX_MAX_NB_OUTSTANDING;
+/* static int nb_max_outstanding = CMX_MAX_NB_OUTSTANDING; */
 
 typedef struct {
   MPI_Request request;
@@ -116,8 +110,7 @@ void translate_mpi_error(int ierr, const char* location)
 int get_local_rank_from_win(MPI_Win win, int world_rank, int *local_rank)
 {
   int status;
-  cmx_igroup_t *world_igroup =
-    cmx_get_igroup_from_group(CMX_GROUP_WORLD);
+  cmx_igroup_t *world_igroup = CMX_GROUP_WORLD;
   MPI_Group group;
   status = MPI_Win_get_group(win, &group);
   translate_mpi_error(status,"get_local_rank_from_win:MPI_Win_get_group");
@@ -283,7 +276,7 @@ int cmx_get(
   MPI_Aint displ;
   void *ptr;
   int lproc, ierr;
-  MPI_win win = cmx_hdl.win;
+  MPI_Win win = cmx_hdl.win;
 #ifdef USE_MPI_REQUESTS
   MPI_Request request;
   MPI_Status status;
@@ -344,7 +337,7 @@ int cmx_acc(
   MPI_Status status;
 #endif
   ptr = cmx_hdl.buf;
-  displ = (MPI_Aint)(src_offset);
+  displ = (MPI_Aint)(dst_offset);
   if (!(get_local_rank_from_win(win, proc, &lproc)
         == CMX_SUCCESS)) {
     assert(0);
@@ -717,7 +710,7 @@ int cmx_gets(
 #endif
   /* If data is contiguous, use cmx_get */
   if (stride_levels == 0) {
-    return cmx_get(src_ptr, dst_ptr, count[0], proc, group);
+    return cmx_get(dst_ptr, src_offset, count[0], proc, cmx_hdl);
   }
   ptr = cmx_hdl.buf;
   displ = (MPI_Aint)(src_offset);
@@ -775,8 +768,8 @@ int cmx_gets(
 void* malloc_strided_acc_buffer(void* ptr, cmxInt *strides, cmxInt *count,
     int levels, cmxInt *size, cmxInt *new_strides)
 {
-  cmxIint index[7];
-  cmxIint lcnt[7];
+  cmxInt index[7];
+  cmxInt lcnt[7];
   cmxInt i, j, idx, stride, src_idx;
   void *new_ptr;
   char *cursor, *src_cursor;
@@ -858,7 +851,7 @@ int cmx_accs(
   /* If data is contiguous, use cmx_acc */
   if (stride_levels == 0) {
     return cmx_acc(op, scale, src_ptr,
-        dst_ptr, count[0], proc, group);
+        dst_offset, count[0], proc, cmx_hdl);
   }
   ptr = cmx_hdl.buf;
   displ = (MPI_Aint)(dst_offset);
@@ -996,7 +989,7 @@ void vector_to_struct_dtype(void* src_ptr, void *dst_ptr, cmx_giov_t *iov,
 {
   cmxInt i, j, size;
   cmxInt nelems, icnt;
-  cmInt *blocklengths;
+  cmxInt *blocklengths;
   MPI_Aint *displacements;
   MPI_Datatype *types;
   MPI_Aint displ;
@@ -1377,11 +1370,12 @@ void* create_vector_buf_and_dtypes(void *loc_ptr,
 int cmx_accv(
     int op, void *scale,
     cmx_giov_t *iov, int iov_len,
-    int proc, cmx_group_t group)
+    int proc, cmx_handle_t cmx_hdl)
 {
   MPI_Datatype src_type, dst_type;
   MPI_Aint displ;
   MPI_Datatype base_type;
+  void *ptr, *src_ptr;
   int ierr;
 #ifdef USE_MPI_REQUESTS
   MPI_Request request;
@@ -1479,8 +1473,7 @@ int cmx_barrier(cmx_group_t group)
   MPI_Comm comm;
 
   cmx_fence_all(group);
-  assert(CMX_SUCCESS == cmx_group_comm(group, &comm));
-  MPI_Barrier(comm);
+  MPI_Barrier(group->comm);
 
   return CMX_SUCCESS;
 }
@@ -1515,7 +1508,6 @@ int cmx_free_local(void *ptr)
 
   return CMX_SUCCESS;
 }
-
 
 /**
  * Terminate cmx and clean up resources
@@ -2438,7 +2430,7 @@ int cmx_rmw(
   MPI_Win win = cmx_hdl.win;
   ptr = cmx_hdl.buf;
   if (ptr == NULL) return CMX_FAILURE;
-  displ = (MPI_Aint)(prem) - (MPI_Aint)(ptr);
+  displ = (MPI_Aint)(rem_offset);
   if (!(get_local_rank_from_win(win, proc, &lproc)
         == CMX_SUCCESS)) {
     assert(0);
@@ -2541,7 +2533,7 @@ int cmx_create_mutexes(int num)
   int me = l_state.rank;
   int nproc = l_state.size;
 
-  igroup = cmx_get_igroup_from_group(CMX_GROUP_WORLD);
+  igroup = CMX_GROUP_WORLD;
   comm = igroup->comm;
 
   sbuf = (int*)malloc(nproc*sizeof(int));
@@ -2713,7 +2705,7 @@ int cmx_malloc(cmx_handle_t *handle, cmxInt bytes, cmx_group_t group)
 
 #if DEBUG
   printf("[%d] cmx_malloc(ptrs=%p, size=%lu, group=%d)\n",
-      comm_rank, ptrs, (long unsigned)size, group);
+      comm_rank, ptrs, (long unsigned)bytes, group);
 #endif
 
   /* is this needed? */
@@ -2721,14 +2713,15 @@ int cmx_malloc(cmx_handle_t *handle, cmxInt bytes, cmx_group_t group)
 
   /* allocate ret_entry_t object for this process */
   handle->rank = comm_rank;
-  handle->bytes = size;
+  handle->bytes = bytes;
   handle->comm = comm;
+  handle->group = group;
 
   /* allocate and register segment. We need to allocate something even if size
      is zero so allocate a nominal amount so that routines don't break. Count
      on the fact that the length is zero to keep things from breaking down */
-  if (size > 0) {
-    tsize = size;
+  if (bytes > 0) {
+    tsize = bytes;
   } else {
     tsize = 8;
   }
@@ -2744,8 +2737,8 @@ int cmx_malloc(cmx_handle_t *handle, cmxInt bytes, cmx_group_t group)
   MPI_Win_lock_all(0,(handle->win));
 #endif
 
-  cmx_igroup_add_win(group,handle->win);
-  cmx_wait_all(group);
+  cmx_igroup_add_win(igroup,handle->win);
+  cmx_wait_all(igroup);
   /* MPI_Win_fence(0,reg_entries[comm_rank].win); */
   MPI_Barrier(comm);
 
@@ -2755,7 +2748,7 @@ int cmx_malloc(cmx_handle_t *handle, cmxInt bytes, cmx_group_t group)
 
 int cmx_free(cmx_handle_t handle)
 {
-  cmx_igroup_t *igroup = handle.group;
+  cmx_igroup_t *group = handle.group;
   MPI_Comm comm = MPI_COMM_NULL;
   MPI_Win window;
   int comm_rank, world_rank;

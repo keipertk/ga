@@ -7,10 +7,10 @@
 
 #include <mpi.h>
 
-#include "groups.h"
-
 #define COMEX_MAX_NB_OUTSTANDING 8
 #define SHM_NAME_SIZE 20
+
+typedef int cmxInt;
 
 typedef struct {
     MPI_Comm world_comm;
@@ -18,9 +18,25 @@ typedef struct {
     int size;
 } local_state;
 
+typedef struct win_link {
+    struct win_link *next;
+      struct win_link *prev;
+        MPI_Win win;
+} win_link_t;
+
+typedef struct group_link {
+  struct group_link *next;
+  MPI_Comm comm;
+  MPI_Group group;
+  win_link_t *win_list;
+} _cmx_group;
+
+typedef _cmx_group cmx_igroup_t;
+
 typedef struct {
   MPI_Win win;
   MPI_Comm comm;
+  cmx_igroup_t *group;
   cmxInt bytes;
   int rank;
   void *buf;
@@ -35,7 +51,11 @@ typedef struct {
 #endif
 } _cmx_request;
 
+typedef cmx_igroup_t* cmx_group_t;
+
 extern local_state l_state;
+
+extern cmx_group_t CMX_GROUP_WORLD;
 
 #define DEBUG 0
 #define COMEX_STRINGIFY(x) #x
