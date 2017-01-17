@@ -43,7 +43,8 @@
 
 #define DIMS 4
 #define MAXDIMS 7
-#define MAX_DIM_VAL 50
+/* #define MAX_DIM_VAL 50 */
+#define MAX_DIM_VAL 10
 #define LOOP 200
 
 #define BASE 100.
@@ -291,7 +292,7 @@ void init(double *a, int ndim, int elems, int dims[])
 
 
 /*\ compute Index from subscript
- *  assume that first subscript component changes first
+ *  assume that first subscript component changes fastest
 \*/
 int Index(int ndim, int subscript[], int dims[])
 {
@@ -428,10 +429,9 @@ void create_array(cmx_handle_t *a, int elem_size, int ndim, int dims[])
 
 void destroy_array(cmx_handle_t a)
 {
+  int rc;
   cmx_barrier(a.group);
-#if 1
-  assert(!cmx_free(a));
-#endif
+  rc = cmx_free(a);
 }
 
 
@@ -759,14 +759,14 @@ void verify_vector_data(double *data, int procs, int isput, int datalen)
   }
 }
 
-#if 0
+#if 1
 void test_vec_small()
 {
   double *getdst;
   double **putsrc;
   cmx_giov_t dsc[MAXPROC*GIOV_ARR_LEN];
-  void **psrc; /*arrays of pointers to be used by giov_t*/
-  void **pdst;
+  void **ploc; /*arrays of pointers to be used by giov_t*/
+  cmxInt *prem;
   cmx_handle_t getsrc; /*to allocate mem via cmx_malloc*/
   cmx_handle_t putdst; /*to allocate mem via cmx_malloc*/
   cmx_request_t hdl_put[MAXPROC], hdl_get[MAXPROC];
@@ -791,14 +791,14 @@ void test_vec_small()
     assert(putsrc[i]);
   }
   /*allocating memory for psrc and pdst*/
-  psrc = (void **)malloc(sizeof(void *) * PTR_ARR_LEN * nproc * GIOV_ARR_LEN);
-  pdst = (void **)malloc(sizeof(void *) * PTR_ARR_LEN * nproc * GIOV_ARR_LEN);
+  ploc = (void **)malloc(sizeof(void *) * PTR_ARR_LEN * nproc * GIOV_ARR_LEN);
+  prem = (cmxInt *)malloc(sizeof(cmxInt) * PTR_ARR_LEN * nproc * GIOV_ARR_LEN);
   assert(pdst);
   assert(psrc);
 
   for (i = 0; i < nproc * lenpergiov * GIOV_ARR_LEN; i++) {
     putsrc[j][k] = (me + 1.89 + dst) * ((kc + 1) * ((j % PTR_ARR_LEN) + 1));
-    ((double *)getsrc[me])[i] = (me + 2.89 + dst) * ((kc + 1) * (j % PTR_ARR_LEN + 1));
+    ((double *)getsrc.buf)[i] = (me + 2.89 + dst) * ((kc + 1) * (j % PTR_ARR_LEN + 1));
     k++;
     if (k == VEC_ELE_LEN) {
       j++;
@@ -827,16 +827,16 @@ void test_vec_small()
       kcold = kc;
       for (k = 0; k < PTR_ARR_LEN; k++, kc++) {
         double *ptr;
-        psrc[kc] = (void *)putsrc[PTR_ARR_LEN*(dstproc*GIOV_ARR_LEN+j)+k];
-        ptr = (double *)putdst[dstproc];
-        pdst[kc] = (void *)(ptr + lenpergiov * (GIOV_ARR_LEN * me + j) + k * VEC_ELE_LEN);
+        ploc[kc] = (void *)putsrc[PTR_ARR_LEN*(dstproc*GIOV_ARR_LEN+j)+k];
+        prem[kc] = sizeof(double)*(lenpergiov * (GIOV_ARR_LEN * me + j)
+            + k * VEC_ELE_LEN);
       }
       dsc[j].bytes = VEC_ELE_LEN * sizeof(double);
-      dsc[j].src = &psrc[kcold];
-      dsc[j].dst = &pdst[kcold];
+      dsc[j].loc = &ploc[kcold];
+      dsc[j].rem = &prem[kcold];
       dsc[j].count = PTR_ARR_LEN;
     }
-    if ((rc = cmx_nbputv(dsc, GIOV_ARR_LEN, dstproc, CMX_GROUP_WORLD, hdl_put + dstproc))) {
+    if ((rc = cmx_nbputv(dsc, GIOV_ARR_LEN, dstproc, putdst, hdl_put + dstproc))) {
       cmx_error("putv failed", rc);
     }
   }
@@ -849,7 +849,8 @@ void test_vec_small()
   sleep(1);
   cmx_barrier(CMX_GROUP_WORLD);
   cmx_fence_all(CMX_GROUP_WORLD);
-  verify_vector_data((double *)putdst[me], nproc, 1, nproc * GIOV_ARR_LEN * lenpergiov);
+  verify_vector_data((double *)putdst.buf, nproc, 1,
+      nproc * GIOV_ARR_LEN * lenpergiov);
   if (me == 0) {
     printf("\n\tPuts OK\n");
   }
@@ -871,16 +872,17 @@ void test_vec_small()
       for (k = 0; k < PTR_ARR_LEN; k++, kc++) {
         double *ptr;
         ptr = getdst;
-        pdst[kc] = (void *)(ptr + lenpergiov * (dstproc * GIOV_ARR_LEN + j) + k * VEC_ELE_LEN);
-        ptr = (double *)(getsrc[dstproc]);
-        psrc[kc] = (void *)(ptr + lenpergiov * (me * GIOV_ARR_LEN + j) + k * VEC_ELE_LEN);
+        ploc[kc] = (void *)(ptr + lenpergiov * (dstproc * GIOV_ARR_LEN + j)
+            + k * VEC_ELE_LEN);
+        prem[kc] = sizeof(double) * (lenpergiov * (me * GIOV_ARR_LEN + j)
+            + k * VEC_ELE_LEN);
       }
       dsc[j].bytes = VEC_ELE_LEN * sizeof(double);
-      dsc[j].src = &psrc[kcold];
-      dsc[j].dst = &pdst[kcold];
+      dsc[j].loc = &ploc[kcold];
+      dsc[j].rem = &prem[kcold];
       dsc[j].count = PTR_ARR_LEN;
     }
-    if ((rc = cmx_nbgetv(dsc, GIOV_ARR_LEN, dstproc, CMX_GROUP_WORLD, hdl_get + dstproc))) {
+    if ((rc = cmx_nbgetv(dsc, GIOV_ARR_LEN, dstproc, getsrc, hdl_get + dstproc))) {
       cmx_error("putv failed", rc);
     }
   }
@@ -897,15 +899,15 @@ void test_vec_small()
     printf("\n\tGets OK\n");
   }
   /****************Done Testing NbGetV*********************************/
-  free(pdst);
-  free(psrc);
+  free(ploc);
+  free(prem);
   free(getdst);
   for (i = 0; i < nproc * GIOV_ARR_LEN * PTR_ARR_LEN; i++) {
     free(putsrc[i]);
   }
   free(putsrc);
-  cmx_free(getsrc[me], CMX_GROUP_WORLD);
-  cmx_free(putdst[me], CMX_GROUP_WORLD);
+  cmx_free(getsrc);
+  cmx_free(putdst);
 }
 #endif
 
@@ -1090,7 +1092,6 @@ void test_vector()
     printf("]--------\n");
   }
   sleep(1);
-
   for (loop = 0; loop < LOOP; loop++) {
     get_range(ndim, dimsA, loA, hiA);
     new_range(ndim, dimsB, loA, hiA, loB, hiB);
@@ -1124,7 +1125,7 @@ void test_vector()
       ij[0] = loB[0] + i;
       ij[1] = loB[1] + i;
       idx = Index(ndim, ij, dimsB);
-      prem[i] = idx;
+      prem[i] = sizeof(double)*idx;
 
       dsc[i].bytes = (rows - i) * sizeof(double);
       dsc[i].loc = &ploc[i];
@@ -1152,7 +1153,7 @@ void test_vector()
 
       ij[0] = loB[0];
       ij[1] = loB[1] + i;
-      prem[i-1] = Index(ndim, ij, dimsB);
+      prem[i-1] = sizeof(double)*Index(ndim, ij, dimsB);
 
       mrc = CMX_MIN(i, rows);
       dsc[i-1].bytes = mrc * sizeof(double);
@@ -1165,15 +1166,14 @@ void test_vector()
 
     if ((cols - 1))if ((rc = cmx_putv(dsc, cols - 1, proc, b))) {
         cmx_error("putv(2) failed ", rc);
-      }
-
+    }
 
     /* we get back entire rectangular patch */
     for (i = 0; i < cols; i++) {
       int ij[2];
       ij[0] = loB[0];
       ij[1] = loB[1] + i;
-      prem[i] = Index(ndim, ij, dimsB);
+      prem[i] = sizeof(double)*Index(ndim, ij, dimsB);
 
       ij[0] = loC[0];
       ij[1] = loC[1] + i;
@@ -1193,7 +1193,8 @@ void test_vector()
 
     idx1 = Index(ndim, loA, dimsA);
     idx3 = Index(ndim, loC, dimsA);
-    compare_patches(0., ndim, (double *)a + idx1, loA, hiA, dimsA, (double *)c + idx3, loC, hiC, dimsA);
+    compare_patches(0., ndim, (double *)a + idx1, loA, hiA, dimsA,
+        (double *)c + idx3, loC, hiC, dimsA);
 
   }
 
@@ -1263,7 +1264,7 @@ void test_vector_acc()
     /* accumulate even numbered elements */
     for (j = 0; j < elems / 2; j++) {
       ploc[j] = 2 * j + (double *)a;
-      prem[j] = 2 * j;
+      prem[j] = sizeof(double) * (2 * j);
     }
     if ((rc = cmx_accv(CMX_ACC_DBL, &alpha, &dsc, 1, proc, b))) {
       cmx_error("accumlate failed", rc);
@@ -1274,7 +1275,7 @@ void test_vector_acc()
     /* accumulate odd numbered elements */
     for (j = 0; j < elems / 2; j++) {
       ploc[j] = 2 * j + 1 + (double *)a;
-      prem[j] = 2 * j + 1;
+      prem[j] = sizeof(double) * (2 * j + 1);
     }
     (void)cmx_accv(CMX_ACC_DBL, &alpha, &dsc, 1, proc, b);
 
@@ -1282,12 +1283,12 @@ void test_vector_acc()
                     printf("%d %lf %lf\n",j, *(j+ (double*)a), *(j+ (double*)b[proc]));
     */
   }
-
   cmx_fence_all(CMX_GROUP_WORLD);
   cmx_barrier(CMX_GROUP_WORLD);
 
   /* copy my patch into local array c */
-  assert(!cmx_get(c, 0, bytes, proc, b));
+  /* assert(!cmx_get(c, 0, bytes, proc, b)); */
+  !cmx_get(c, 0, bytes, proc, b);
 
   /*        scale = alpha*TIMES*nproc; */
   scale = alpha * TIMES * nproc * nproc;
@@ -1645,7 +1646,7 @@ int main(int argc, char *argv[])
     fflush(stdout);
     sleep(1);
   }
-#if 0
+#if 1
   double timer_test_vec_small = timer();
   test_vec_small();
   cmx_fence_all(CMX_GROUP_WORLD);
@@ -1667,7 +1668,6 @@ int main(int argc, char *argv[])
   cmx_fence_all(CMX_GROUP_WORLD);
   cmx_barrier(CMX_GROUP_WORLD);
 
-#if 1
   if (me == 0) {
     printf("\nTesting Vector Interface using triangular patches of a 2-D array\n\n");
     fflush(stdout);
@@ -1689,7 +1689,6 @@ int main(int argc, char *argv[])
   if (me == 0) { 
       printf("test_vector_acc_timer=%f\n", test_vector_acc_timer);
   }
-#endif
 
   cmx_fence_all(CMX_GROUP_WORLD);
   cmx_barrier(CMX_GROUP_WORLD);

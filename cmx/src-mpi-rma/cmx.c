@@ -9,22 +9,23 @@
 /* 3rd party headers */
 #include <mpi.h>
 
-/* our headers */
-#include "cmx.h"
-#include "cmx_impl.h"
-#include "groups.h"
-
+/* Configuration options */
 #define DEBUG 0
 
 /*
 #define USE_MPI_REQUESTS
-#define USE_MPI_WIN_ALLOC
 #define USE_MPI_FLUSH_LOCAL
+#define USE_MPI_WIN_ALLOC
 */
 
 #ifdef USE_MPI_FLUSH_LOCAL
 #define USE_MPI_REQUESTS
 #endif
+
+/* our headers */
+#include "cmx.h"
+#include "cmx_impl.h"
+#include "groups.h"
 
 /* exported state */
 local_state l_state;
@@ -72,7 +73,7 @@ typedef struct {
 } SingleComplex;
 
 /* Find first available non-blocking handle */
-#ifdef USE_MPI_REQUESTS
+#ifdef ZUSE_MPI_REQUESTS
 void get_nb_request(cmx_request_t *handle, nb_t **req)
 {
   int i;
@@ -161,7 +162,7 @@ int cmx_init()
   _mutex_total = 0;
 
   /* initialize non-blocking handles */
-#ifdef USE_MPI_REQUESTS
+#ifdef ZUSE_MPI_REQUESTS
   nb_list = (nb_t**)malloc(sizeof(nb_t*) * nb_max_outstanding);
   CMX_ASSERT(nb_list);
   for (i=0; i<nb_max_outstanding; i++) {
@@ -221,14 +222,12 @@ int cmx_put(
     int proc, cmx_handle_t cmx_hdl)
 {
   MPI_Aint displ;
-  void *ptr;
   int lproc, ierr;
   MPI_Win win = cmx_hdl.win;
 #ifdef USE_MPI_REQUESTS
   MPI_Request request;
   MPI_Status status;
 #endif
-  ptr = cmx_hdl.buf;
   displ = (MPI_Aint)(dst_offset);
   if (!(get_local_rank_from_win(win, proc, &lproc)
         == CMX_SUCCESS)) {
@@ -274,14 +273,12 @@ int cmx_get(
     int proc, cmx_handle_t cmx_hdl)
 {
   MPI_Aint displ;
-  void *ptr;
   int lproc, ierr;
   MPI_Win win = cmx_hdl.win;
 #ifdef USE_MPI_REQUESTS
   MPI_Request request;
   MPI_Status status;
 #endif
-  ptr = cmx_hdl.buf;
   displ = (MPI_Aint)(src_offset);
   if (!(get_local_rank_from_win(win, proc, &lproc)
         == CMX_SUCCESS)) {
@@ -329,14 +326,12 @@ int cmx_acc(
     int proc, cmx_handle_t cmx_hdl)
 {
   MPI_Aint displ, count;
-  void *ptr;
   int i, lproc, ierr;
   MPI_Win win = cmx_hdl.win;
 #ifdef USE_MPI_REQUESTS
   MPI_Request request;
   MPI_Status status;
 #endif
-  ptr = cmx_hdl.buf;
   displ = (MPI_Aint)(dst_offset);
   if (!(get_local_rank_from_win(win, proc, &lproc)
         == CMX_SUCCESS)) {
@@ -627,7 +622,6 @@ int cmx_puts(
 {
   MPI_Datatype src_type, dst_type;
   MPI_Aint displ;
-  void *ptr;
   int lproc, ierr;
   MPI_Win win = cmx_hdl.win;
 #ifdef USE_MPI_REQUESTS
@@ -638,7 +632,6 @@ int cmx_puts(
   if (stride_levels == 0) {
     return cmx_put(src_ptr, dst_offset, count[0], proc, cmx_hdl);
   }
-  ptr = cmx_hdl.buf;
   displ = (MPI_Aint)(dst_offset);
 
   strided_to_subarray_dtype(src_stride_ar, count, stride_levels,
@@ -701,7 +694,6 @@ int cmx_gets(
 {
   MPI_Datatype src_type, dst_type;
   MPI_Aint displ;
-  void *ptr;
   int lproc,ierr;
   MPI_Win win = cmx_hdl.win;
 #ifdef USE_MPI_REQUESTS
@@ -712,7 +704,6 @@ int cmx_gets(
   if (stride_levels == 0) {
     return cmx_get(dst_ptr, src_offset, count[0], proc, cmx_hdl);
   }
-  ptr = cmx_hdl.buf;
   displ = (MPI_Aint)(src_offset);
 
   strided_to_subarray_dtype(src_stride_ar, count, stride_levels,
@@ -837,7 +828,6 @@ int cmx_accs(
 {
   MPI_Datatype src_type, dst_type;
   MPI_Aint displ;
-  void *ptr;
   int lproc, i, ierr;
   void *packbuf;
   cmxInt bufsize;
@@ -853,7 +843,6 @@ int cmx_accs(
     return cmx_acc(op, scale, src_ptr,
         dst_offset, count[0], proc, cmx_hdl);
   }
-  ptr = cmx_hdl.buf;
   displ = (MPI_Aint)(dst_offset);
   if (!(get_local_rank_from_win(win, proc, &lproc)
         == CMX_SUCCESS)) {
@@ -976,16 +965,15 @@ int cmx_accs(
 /**
  * Utility function to create MPI data type for vector data object
  * @param src_ptr: location of first data point in vector data object for source
- * @param dst_ptr: location of first data point in vector data object for destination
  * @param iov: cmx vector struct containing data information
  * @param iov_len: number of elements in vector data object
  * @param base_type: MPI_Datatype of elements
  * @param type: returned MPI_Datatype corresponding to iov for source data
  * @param type: returned MPI_Datatype corresponding to iov for destination data
  */
-void vector_to_struct_dtype(void* src_ptr, void *dst_ptr, cmx_giov_t *iov,
-    int iov_len, MPI_Datatype base_type, MPI_Datatype *src_type,
-    MPI_Datatype *dst_type)
+void vector_to_struct_dtype(void* loc_ptr, cmx_giov_t *iov,
+    int iov_len, MPI_Datatype base_type, MPI_Datatype *loc_type,
+    MPI_Datatype *rem_type)
 {
   cmxInt i, j, size;
   cmxInt nelems, icnt;
@@ -1006,7 +994,7 @@ void vector_to_struct_dtype(void* src_ptr, void *dst_ptr, cmx_giov_t *iov,
   icnt = 0;
   for (i=0; i<iov_len; i++) {
     for (j=0; j<iov[i].count; j++) {
-      displ = (MPI_Aint)iov[i].loc[j]-(MPI_Aint)src_ptr;
+      displ = (MPI_Aint)iov[i].loc[j]-(MPI_Aint)loc_ptr;
       blocklengths[icnt] = iov[i].bytes/size;
       displacements[icnt] = displ;
       types[icnt] = base_type;
@@ -1014,17 +1002,17 @@ void vector_to_struct_dtype(void* src_ptr, void *dst_ptr, cmx_giov_t *iov,
     }
   }
   MPI_Type_create_struct(nelems, blocklengths, displacements, types,
-      src_type);
+      loc_type);
   icnt = 0;
   for (i=0; i<iov_len; i++) {
     for (j=0; j<iov[i].count; j++) {
-      displ = (MPI_Aint)iov[i].rem[j];
+      displ = size*(MPI_Aint)iov[i].rem[j];
       displacements[icnt] = displ;
       icnt++;
     }
   }
   MPI_Type_create_struct(nelems, blocklengths, displacements, types,
-      dst_type);
+      rem_type);
 }
 
 /**
@@ -1040,7 +1028,7 @@ int cmx_putv(
 {
   MPI_Datatype src_type, dst_type;
   MPI_Aint displ;
-  void *ptr, *src_ptr;
+  void *src_ptr;
   int lproc, ierr;
   MPI_Win win = cmx_hdl.win;
 #ifdef USE_MPI_REQUESTS
@@ -1048,9 +1036,8 @@ int cmx_putv(
   MPI_Status status;
 #endif
   src_ptr = iov[0].loc[0];
-  ptr = cmx_hdl.buf;
   displ = 0;
-  vector_to_struct_dtype(src_ptr, ptr, iov, iov_len,
+  vector_to_struct_dtype(src_ptr, iov, iov_len,
       MPI_BYTE, &src_type, &dst_type);
   if (!(get_local_rank_from_win(win, proc, &lproc)
         == CMX_SUCCESS)) {
@@ -1099,7 +1086,7 @@ int cmx_getv(
 {
   MPI_Datatype src_type, dst_type;
   MPI_Aint displ;
-  void *ptr, *dst_ptr;
+  void *dst_ptr;
   int lproc, ierr;
   MPI_Win win = cmx_hdl.win;
 #ifdef USE_MPI_REQUESTS
@@ -1107,10 +1094,9 @@ int cmx_getv(
   MPI_Status status;
 #endif
   dst_ptr = iov[0].loc[0];
-  ptr = cmx_hdl.buf;
   displ = 0;
-  vector_to_struct_dtype(ptr, dst_ptr, iov, iov_len,
-      MPI_BYTE, &src_type, &dst_type);
+  vector_to_struct_dtype(dst_ptr, iov, iov_len,
+      MPI_BYTE, &dst_type, &src_type);
   if (!(get_local_rank_from_win(win, proc, &lproc)
         == CMX_SUCCESS)) {
     assert(0);
@@ -1534,7 +1520,7 @@ int cmx_finalize()
   MPI_Comm_free(&l_state.world_comm);
 
   /* Clean up request list */
-#ifdef USE_MPI_REQUESTS
+#ifdef ZUSE_MPI_REQUESTS
   for (i=0; i<nb_max_outstanding; i++) {
     free(nb_list[i]);
   }
@@ -1592,7 +1578,7 @@ int cmx_test(cmx_request_t *req, int *status)
   int flag;
   int ret;
   MPI_Status stat;
-  MPI_Test(req->request,&flag,&stat);
+  MPI_Test(&req->request,&flag,&stat);
   if (flag) {
     *status = 1;
     ret = CMX_SUCCESS;
@@ -1668,7 +1654,7 @@ int cmx_nbput(
   req->win = win;
 #else
   ierr = MPI_Rput(src, bytes, MPI_CHAR, lproc, displ, bytes, MPI_CHAR,
-         &request);
+         win, &request);
   translate_mpi_error(ierr,"cmx_nbput:MPI_Rput");
 #endif
   req->request = request;
@@ -1705,7 +1691,7 @@ int cmx_nbget(
   MPI_Aint displ;
   void *ptr;
   int lproc, ierr;
-  MPI_Win win = cmx_hdl;
+  MPI_Win win = cmx_hdl.win;
   MPI_Request request;
   ptr = cmx_hdl.buf;
   displ = (MPI_Aint)(src_offset);
@@ -1763,7 +1749,7 @@ int cmx_nbacc(
   MPI_Request request;
   MPI_Status status;
   ptr = cmx_hdl.buf;
-  displ = (MPI_Aint)(ds_offset);
+  displ = (MPI_Aint)(dst_offset);
   if (!(get_local_rank_from_win(win, proc, &lproc)
         == CMX_SUCCESS)) {
     assert(0);
@@ -1848,7 +1834,7 @@ int cmx_nbacc(
     }
 #ifdef USE_MPI_FLUSH_LOCAL
     ierr = MPI_Accumulate(buf,count,MPI_DOUBLE,lproc,displ,count,
-        MPI_DOUBLE,MPI_SUM,in);
+        MPI_DOUBLE,MPI_SUM,win);
     translate_mpi_error(ierr,"cmx_nbacc:MPI_Accumulate");
     req->remote_proc = lproc;
     req->win = win;
@@ -2038,7 +2024,6 @@ int cmx_nbgets(
         == CMX_SUCCESS)) {
     assert(0);
   }
-  get_nb_request(hdl, &req);
   MPI_Type_commit(&src_type);
   MPI_Type_commit(&dst_type);
 #ifdef USE_MPI_FLUSH_LOCAL
@@ -2091,7 +2076,7 @@ int cmx_nbaccs(
 #ifdef USE_MPI_REQUESTS
   if (req == NULL) {
     return cmx_accs(op, scale,
-        src, src_stride, dst_offseet, dst_stride,
+        src, src_stride, dst_offset, dst_stride,
         count, stride_levels, proc, cmx_hdl);
   }
   MPI_Datatype src_type, dst_type;
@@ -2104,7 +2089,7 @@ int cmx_nbaccs(
   MPI_Win win = cmx_hdl.win;
   MPI_Request request;
   MPI_Status status;
-  ptr = cmx_bufbuf;
+  ptr = cmx_hdl.buf;
   displ = (MPI_Aint)(dst_offset);
   if (!(get_local_rank_from_win(win, proc, &lproc)
         == CMX_SUCCESS)) {
@@ -2184,7 +2169,6 @@ int cmx_nbaccs(
   } else {
     assert(0);
   }
-  get_nb_request(hdl, &req);
   MPI_Type_commit(&src_type);
   MPI_Type_commit(&dst_type);
 #ifdef USE_MPI_FLUSH_LOCAL
@@ -2240,7 +2224,7 @@ int cmx_nbputv(
   src_ptr = iov[0].loc[0];
   ptr = cmx_hdl.buf;
   displ = 0;
-  vector_to_struct_dtype(src_ptr, ptr, iov, iov_len,
+  vector_to_struct_dtype(src_ptr, iov, iov_len,
       MPI_BYTE, &src_type, &dst_type);
   if (!(get_local_rank_from_win(win, proc, &lproc)
         == CMX_SUCCESS)) {
@@ -2290,19 +2274,18 @@ int cmx_nbgetv(
   MPI_Win win = cmx_hdl.win;
   MPI_Request request;
   MPI_Status status;
-  if (handle == NULL) {
+  if (req == NULL) {
     return cmx_getv(iov, iov_len, proc, cmx_hdl);
   }
   dst_ptr = iov[0].loc[0];
-  ptr = cmx_buf.buf;
+  ptr = cmx_hdl.buf;
   displ = 0;
-  vector_to_struct_dtype(ptr, dst_ptr, iov, iov_len,
+  vector_to_struct_dtype(ptr, iov, iov_len,
       MPI_BYTE, &src_type, &dst_type);
   if (!(get_local_rank_from_win(win, proc, &lproc)
         == CMX_SUCCESS)) {
     assert(0);
   }
-  get_nb_request(handle, &req);
   MPI_Type_commit(&src_type);
   MPI_Type_commit(&dst_type);
 #ifdef USE_MPI_FLUSH_LOCAL
@@ -2351,7 +2334,7 @@ int cmx_nbaccv(
   MPI_Request request;
   MPI_Status status;
   MPI_Win win = cmx_hdl.win;
-  if (handle == NULL) {
+  if (req == NULL) {
     return cmx_accv(op, scale, iov, iov_len, proc, cmx_hdl);
   }
   int lproc, size, ierr;
@@ -2382,7 +2365,6 @@ int cmx_nbaccv(
         == CMX_SUCCESS)) {
     assert(0);
   }
-  get_nb_request(handle, &req);
   MPI_Type_commit(&src_type);
   MPI_Type_commit(&dst_type);
 #ifdef USE_MPI_FLUSH_LOCAL
