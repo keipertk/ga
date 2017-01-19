@@ -58,17 +58,17 @@ extern local_state l_state;
 extern cmx_group_t CMX_GROUP_WORLD;
 
 #define DEBUG 0
-#define COMEX_STRINGIFY(x) #x
+#define CMX_STRINGIFY(x) #x
 #ifdef NDEBUG
-#define COMEX_ASSERT(WHAT) ((void) (0))
+#define CMX_ASSERT(WHAT) ((void) (0))
 #else
-#define COMEX_ASSERT(WHAT) \
+#define CMX_ASSERT(WHAT) \
   ((WHAT) \
    ? (void) (0) \
-   : comex_assert_fail (COMEX_STRINGIFY(WHAT), __FILE__, __LINE__, __func__))
+   : cmx_assert_fail (CMX_STRINGIFY(WHAT), __FILE__, __LINE__, __func__))
 #endif
 
-  static inline void comex_assert_fail(
+  static inline void cmx_assert_fail(
       const char *assertion,
       const char *file,
       unsigned int line,
@@ -81,6 +81,6 @@ extern cmx_group_t CMX_GROUP_WORLD;
   printf("[%d] %s:%u: %s: Assertion `%s' failed",
       l_state.rank, file, line, function, assertion);
 #endif
-  comex_error("comex_assert_fail", -1);
+  cmx_error("cmx_assert_fail", -1);
 }
-#endif /* COMEX_IMPL_H_ */
+#endif /* CMX_IMPL_H_ */

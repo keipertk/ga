@@ -41,6 +41,15 @@ typedef _cmx_request cmx_request_t;
 
 #define CMX_MAX_STRIDE_LEVEL 8
 
+#define CMX_NOT_SET 0
+#define CMX_INT     1
+#define CMX_LONG    2
+#define CMX_FLOAT   3
+#define CMX_DOUBLE  4
+#define CMX_COMPLEX 5
+#define CMX_DCMPLX  6
+#define CMX_USER    7
+
 /**
  * Initialize cmx.
  *
