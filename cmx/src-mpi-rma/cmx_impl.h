@@ -67,6 +67,9 @@ extern cmx_group_t CMX_GROUP_WORLD;
    ? (void) (0) \
    : cmx_assert_fail (CMX_STRINGIFY(WHAT), __FILE__, __LINE__, __func__))
 #endif
+/* TODO: Problem with this function since cmx_error is defined in cmx.h
+ * On the other hand, this function is currently not used */
+#if 0
 
   static inline void cmx_assert_fail(
       const char *assertion,
@@ -83,4 +86,5 @@ extern cmx_group_t CMX_GROUP_WORLD;
 #endif
   cmx_error("cmx_assert_fail", -1);
 }
+#endif
 #endif /* CMX_IMPL_H_ */
