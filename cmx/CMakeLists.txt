@@ -399,3 +399,18 @@ install (TARGETS
 # -------------------------------------------------------------
 add_executable(test.x testing/test.c)
 target_link_libraries(test.x cmx)
+
+add_executable(perf_amo.x testing/perf_amo.c)
+target_link_libraries(perf_amo.x cmx)
+
+add_executable(perf.x testing/perf.c)
+target_link_libraries(perf.x cmx)
+
+add_executable(perf_contig.x testing/perf_contig.c)
+target_link_libraries(perf_contig.x cmx)
+
+add_executable(perf_strided.x testing/perf_strided.c)
+target_link_libraries(perf_strided.x cmx)
+
+add_executable(shift.x testing/shift.c)
+target_link_libraries(shift.x cmx)
