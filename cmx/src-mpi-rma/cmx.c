@@ -101,7 +101,7 @@ void translate_mpi_error(int ierr, const char* location)
   if (ierr == MPI_SUCCESS) return;
   char err_string[MPI_MAX_ERROR_STRING];
   int len;
-  fprintf(stderr,"p[%d] Error in %s",l_state.rank,location);
+  fprintf(stderr,"p[%d] Error in %s\n",l_state.rank,location);
   MPI_Error_string(ierr,err_string,&len);
   fprintf(stderr,"p[%d] MPI_Error: %s\n",l_state.rank,err_string);
 }
@@ -118,6 +118,7 @@ int get_local_rank_from_win(MPI_Win win, int world_rank, int *local_rank)
   status = MPI_Group_translate_ranks( world_igroup->group,
       1, &world_rank, group, local_rank);
   if (status != MPI_SUCCESS) {
+    translate_mpi_error(status,"get_local_rank_from_win:MPI_Group_translate_ranks");
     cmx_error("MPI_Group_translate_ranks: Failed", status);
   }
 
@@ -141,6 +142,7 @@ int cmx_init()
 
   /* Duplicate the World Communicator */
   status = MPI_Comm_dup(MPI_COMM_WORLD, &(l_state.world_comm));
+  translate_mpi_error(status,"cmx_init:MPI_Comm_dup");
   assert(MPI_SUCCESS == status);
   assert(l_state.world_comm); 
 
@@ -233,17 +235,76 @@ int cmx_put(
         == CMX_SUCCESS)) {
     assert(0);
   }
+/**
+ * All processes called MPI_WIN_LOCK_ALL on the window (win) used for
+ * these calls. This call:
+ *
+ * Starts an RMA access epoch to all processors in win with a lock of
+ * type MPI_LOCK_SHARED. During the epoch, the calling process can access
+ * the window memory on all processes in win using RMA operations.
+ * A window locked with MPI_WIN_LOCK_ALL must be unlocked with
+ * MPI_WIN_UNLOCK_ALL. This routine is not collective. The ALL refers to a
+ * lock on all members of the group of the window.
+ *
+ * Locks are used to protect accesses to the locked target window effected
+ * by RMA calls issued between the lock and unlock calls, and to protect
+ * load/store accesses to a locked local or shared memory window executed
+ * between the lock and unlock calls. Accesses that are protected by an
+ * exclusive lock will not be concurrent at the window site with other
+ * accesses to the same window that are lock protected. Accesses that are
+ * protected by a shared lock will not be concurrent at the window site with
+ * accesses protected by an exclusive lock to the same window.
+ *
+ * A passive synchronization epoch is created by calling MPI_WIN_LOCK_ALL on
+ * win
+ */
+/**
+ * MPI_WIN_FLUSH completes all outstanding RMA operations initiated by the
+ * calling process to the target rank on the specified window. The
+ * operations are completed both at the origin and at the target
+ */
+#ifdef USE_PRIOR_MPI_WIN_FLUSH
+  ierr = MPI_Win_flush(lproc, reg_win->win);
+  translate_mpi_error(ierr,"cmx_put:MPI_Win_flush");
+#endif
 #ifdef USE_MPI_REQUESTS
 #ifdef USE_MPI_FLUSH_LOCAL
+/**
+ * The local communication buffer of an RMA call should not be updated, and
+ * the local communication buffer of a get call should not be accessed after
+ * the RMA call until the operation completes at the origin.
+ */
   ierr = MPI_Put(src, bytes, MPI_CHAR, lproc, displ, bytes, MPI_CHAR,
       win);
   translate_mpi_error(ierr,"cmx_put:MPI_Put");
+/**
+ * MPI_WIN_FLUSH_LOCAL locally completes at the origin all outstanding RMA
+ * operations initiated by the calling process to the target process
+ * specified by the rank on the specified window. For example, after the
+ * routine completes, the user may reused any buffers provided to put, get,
+ * or accumulate operations
+ */
   ierr = MPI_Win_flush_local(lproc, win);
   translate_mpi_error(ierr,"cmx_put:MPI_Win_flush_local");
 #else
+/**
+ * MPI_RPUT is similar to MPI_PUT, except that it allocates a communication
+ * request object and associates it with the request handle. The completion
+ * of an MPI_RPUT operation (i.e. after the corresponding test or wait)
+ * indicates that the sender is now free to update the locations in the
+ * origin buffer. It does not indicate that the data is available at the
+ * target window. If remote completion is required, MPI_WIN_FLUSH,
+ * MPI_WIN_FLUSH_ALL, MPI_WIN_UNLOCK or MPI_WIN_UNLOCK_ALL can be used.
+ */
   ierr = MPI_Rput(src, bytes, MPI_CHAR, lproc, displ, bytes, MPI_CHAR,
       win, &request);
   translate_mpi_error(ierr,"cmx_put:MPI_Rput");
+/**
+ * A call to MPI_WAIT returns when the operation identified by the request
+ * is complete. If the request is an active persistent request, it is marked
+ * inactive. Any other type of request is and the request handle is set to
+ * MPI_REQUEST_NULL. MPI_WAIT is a non-local operation
+ */
   ierr = MPI_Wait(&request, &status);
   translate_mpi_error(ierr,"cmx_put:MPI_Wait");
 #endif
@@ -284,6 +345,10 @@ int cmx_get(
         == CMX_SUCCESS)) {
     assert(0);
   }
+#ifdef USE_PRIOR_MPI_WIN_FLUSH
+  ierr = MPI_Win_flush(lproc, reg_win->win);
+  translate_mpi_error(ierr,"cmx_get:MPI_Win_flush");
+#endif
 #ifdef USE_MPI_REQUESTS
 #ifdef USE_MPI_FLUSH_LOCAL
   ierr = MPI_Get(dst, bytes, MPI_CHAR, lproc, displ, bytes, MPI_CHAR,
@@ -326,12 +391,14 @@ int cmx_acc(
     int proc, cmx_handle_t cmx_hdl)
 {
   MPI_Aint displ, count;
+  void *buf_ptr;
   int i, lproc, ierr;
   MPI_Win win = cmx_hdl.win;
 #ifdef USE_MPI_REQUESTS
   MPI_Request request;
   MPI_Status status;
 #endif
+  MPI_Datatype mpi_type;
   displ = (MPI_Aint)(dst_offset);
   if (!(get_local_rank_from_win(win, proc, &lproc)
         == CMX_SUCCESS)) {
@@ -343,132 +410,44 @@ int cmx_acc(
     int iscale = *((int*)scale);
     count = (MPI_Aint)(bytes/sizeof(int));
     buf = (int*)malloc(bytes);
+    buf_ptr = buf;
     for (i=0; i<count; i++) {
       buf[i] = isrc[i]*iscale;
     }
-#ifdef USE_MPI_REQUESTS
-#ifdef USE_MPI_FLUSH_LOCAL
-    ierr = MPI_Accumulate(buf,count,MPI_INT,lproc,displ,count,
-        MPI_INT,MPI_SUM,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
-    ierr = MPI_Win_flush_local(lproc, win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_flush_local");
-#else
-    ierr = MPI_Raccumulate(buf,count,MPI_INT,lproc,displ,count,
-        MPI_INT,MPI_SUM,win,&request);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Raccumulate");
-    ierr = MPI_Wait(&request, &status);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Wait");
-#endif
-#else
-    ierr = MPI_Win_lock(MPI_LOCK_SHARED,lproc,0,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_lock");
-    ierr = MPI_Accumulate(buf,count,MPI_INT,lproc,displ,count,
-        MPI_INT,MPI_SUM,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
-    ierr = MPI_Win_unlock(lproc,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_unlock");
-#endif
-    free(buf);
+    mpi_type = MPI_INT;
   } else if (op == CMX_ACC_LNG) {
     long *buf;
     long *lsrc = (long*)src;
     long lscale = *((long*)scale);
     count = (MPI_Aint)(bytes/sizeof(long));
     buf = (long*)malloc(bytes);
+    buf_ptr = buf;
     for (i=0; i<count; i++) {
       buf[i] = lsrc[i]*lscale;
     }
-#ifdef USE_MPI_REQUESTS
-#ifdef USE_MPI_FLUSH_LOCAL
-    ierr = MPI_Accumulate(buf,count,MPI_LONG,lproc,displ,count,
-        MPI_LONG,MPI_SUM,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
-    ierr = MPI_Win_flush_local(lproc, win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_flush_local");
-#else
-    ierr = MPI_Raccumulate(buf,count,MPI_LONG,lproc,displ,count,
-        MPI_LONG,MPI_SUM,win,&request);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Raccumulate");
-    ierr = MPI_Wait(&request, &status);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Wait");
-#endif
-#else
-    ierr = MPI_Win_lock(MPI_LOCK_SHARED,lproc,0,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_lock");
-    ierr = MPI_Accumulate(buf,count,MPI_LONG,lproc,displ,count,
-        MPI_LONG,MPI_SUM,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
-    ierr = MPI_Win_unlock(lproc,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_unlock");
-#endif
-    free(buf);
+    mpi_type = MPI_LONG;
   } else if (op == CMX_ACC_FLT) {
     float *buf;
     float *fsrc = (float*)src;
     float fscale = *((float*)scale);
     count = (MPI_Aint)(bytes/sizeof(float));
     buf = (float*)malloc(bytes);
+    buf_ptr = buf;
     for (i=0; i<count; i++) {
       buf[i] = fsrc[i]*fscale;
     }
-#ifdef USE_MPI_REQUESTS
-#ifdef USE_MPI_FLUSH_LOCAL
-    ierr = MPI_Accumulate(buf,count,MPI_FLOAT,lproc,displ,count,
-        MPI_FLOAT,MPI_SUM,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
-    ierr = MPI_Win_flush_local(lproc, win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_flush_local");
-#else
-    ierr = MPI_Raccumulate(buf,count,MPI_FLOAT,lproc,displ,count,
-        MPI_FLOAT,MPI_SUM,win,&request);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Raccumulate");
-    ierr = MPI_Wait(&request, &status);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Wait");
-#endif
-#else
-    ierr = MPI_Win_lock(MPI_LOCK_SHARED,lproc,0,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_lock");
-    ierr = MPI_Accumulate(buf,count,MPI_FLOAT,lproc,displ,count,
-        MPI_FLOAT,MPI_SUM,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
-    ierr = MPI_Win_unlock(lproc,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_unlock");
-#endif
-    free(buf);
+    mpi_type = MPI_FLOAT;
   } else if (op == CMX_ACC_DBL) {
     double *buf;
     double *dsrc = (double*)src;
     double dscale = *((double*)scale);
     count = (MPI_Aint)(bytes/sizeof(double));
     buf = (double*)malloc(bytes);
+    buf_ptr = buf;
     for (i=0; i<count; i++) {
       buf[i] = dsrc[i]*dscale;
     }
-#ifdef USE_MPI_REQUESTS
-#ifdef USE_MPI_FLUSH_LOCAL
-    ierr = MPI_Accumulate(buf,count,MPI_DOUBLE,lproc,displ,count,
-        MPI_DOUBLE,MPI_SUM,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
-    ierr = MPI_Win_flush_local(lproc, win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_flush_local");
-#else
-    ierr = MPI_Raccumulate(buf,count,MPI_DOUBLE,lproc,displ,count,
-        MPI_DOUBLE,MPI_SUM,win,&request);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Raccumulate");
-    ierr = MPI_Wait(&request, &status);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Wait");
-#endif
-#else
-    ierr = MPI_Win_lock(MPI_LOCK_SHARED,lproc,0,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_lock");
-    ierr = MPI_Accumulate(buf,count,MPI_DOUBLE,lproc,displ,count,
-        MPI_DOUBLE,MPI_SUM,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
-    ierr = MPI_Win_unlock(lproc,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_unlock");
-#endif
-    free(buf);
+    mpi_type = MPI_DOUBLE;
   } else if (op == CMX_ACC_CPL) {
     int cnum;
     float *buf;
@@ -478,34 +457,12 @@ int cmx_acc(
     count = (MPI_Aint)(bytes/sizeof(float));
     cnum = count/2;
     buf = (float*)malloc(bytes);
+    buf_ptr = buf;
     for (i=0; i<cnum; i++) {
       buf[2*i] = csrc[2*i]*crscale-csrc[2*i+1]*ciscale;
       buf[2*i+1] = csrc[2*i]*ciscale+csrc[2*i+1]*crscale;
     }
-#ifdef USE_MPI_REQUESTS
-#ifdef USE_MPI_FLUSH_LOCAL
-    ierr = MPI_Accumulate(buf,count,MPI_FLOAT,lproc,displ,count,
-        MPI_FLOAT,MPI_SUM,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
-    ierr = MPI_Win_flush_local(lproc, win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_flush_local");
-#else
-    ierr = MPI_Raccumulate(buf,count,MPI_FLOAT,lproc,displ,count,
-        MPI_FLOAT,MPI_SUM,win,&request);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Raccumulate");
-    ierr = MPI_Wait(&request, &status);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Wait");
-#endif
-#else
-    ierr = MPI_Win_lock(MPI_LOCK_SHARED,lproc,0,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_lock");
-    ierr = MPI_Accumulate(buf,count,MPI_FLOAT,lproc,displ,count,
-        MPI_FLOAT,MPI_SUM,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
-    ierr = MPI_Win_unlock(lproc,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_unlock");
-#endif
-    free(buf);
+    mpi_type = MPI_FLOAT;
   } else if (op == CMX_ACC_DCP) {
     int cnum;
     double *buf;
@@ -515,37 +472,43 @@ int cmx_acc(
     count = (MPI_Aint)(bytes/sizeof(double));
     cnum = count/2;
     buf = (double*)malloc(bytes);
+    buf_ptr = buf;
     for (i=0; i<cnum; i++) {
       buf[2*i] = csrc[2*i]*crscale-csrc[2*i+1]*ciscale;
       buf[2*i+1] = csrc[2*i]*ciscale+csrc[2*i+1]*crscale;
     }
-#ifdef USE_MPI_REQUESTS
-#ifdef USE_MPI_FLUSH_LOCAL
-    ierr = MPI_Accumulate(buf,count,MPI_DOUBLE,lproc,displ,count,
-        MPI_DOUBLE,MPI_SUM,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
-    ierr = MPI_Win_flush_local(lproc, win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_flush_local");
-#else
-    ierr = MPI_Raccumulate(buf,count,MPI_DOUBLE,lproc,displ,count,
-        MPI_DOUBLE,MPI_SUM,win,&request);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Raccumulate");
-    ierr = MPI_Wait(&request, &status);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Wait");
-#endif
-#else
-    ierr = MPI_Win_lock(MPI_LOCK_SHARED,lproc,0,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_lock");
-    ierr = MPI_Accumulate(buf,count,MPI_DOUBLE,lproc,displ,count,
-        MPI_DOUBLE,MPI_SUM,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
-    ierr = MPI_Win_unlock(lproc,win);
-    translate_mpi_error(ierr,"cmx_acc:MPI_Win_unlock");
-#endif
-    free(buf);
+    mpi_type = MPI_DOUBLE;
   } else {
     assert(0);
   }
+#ifdef USE_PRIOR_MPI_WIN_FLUSH
+  ierr = MPI_Win_flush(lproc, reg_win->win);
+  translate_mpi_error(ierr,"cmx_acc:MPI_Win_flush");
+#endif
+#ifdef USE_MPI_REQUESTS
+#ifdef USE_MPI_FLUSH_LOCAL
+  ierr = MPI_Accumulate(buf_ptr,count,mpi_type,lproc,displ,count,
+      mpi_type,MPI_SUM,win);
+  translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
+  ierr = MPI_Win_flush_local(lproc, win);
+  translate_mpi_error(ierr,"cmx_acc:MPI_Win_flush_local");
+#else
+  ierr = MPI_Raccumulate(buf_ptr,count,mpi_type,lproc,displ,count,
+      mpi_type,MPI_SUM,win,&request);
+  translate_mpi_error(ierr,"cmx_acc:MPI_Raccumulate");
+  ierr = MPI_Wait(&request, &status);
+  translate_mpi_error(ierr,"cmx_acc:MPI_Wait");
+#endif
+#else
+  ierr = MPI_Win_lock(MPI_LOCK_SHARED,lproc,0,win);
+  translate_mpi_error(ierr,"cmx_acc:MPI_Win_lock");
+  ierr = MPI_Accumulate(buf_ptr,count,mpi_type,lproc,displ,count,
+      mpi_type,MPI_SUM,win);
+  translate_mpi_error(ierr,"cmx_acc:MPI_Accumulate");
+  ierr = MPI_Win_unlock(lproc,win);
+  translate_mpi_error(ierr,"cmx_acc:MPI_Win_unlock");
+#endif
+  free(buf_ptr);
   return CMX_SUCCESS;
 }
 
@@ -565,7 +528,8 @@ void strided_to_subarray_dtype(int *stride_array, int *count, int levels,
   int array_of_starts[7];
   int array_of_subsizes[7];
   int stride;
-  MPI_Type_size(base_type,&stride);
+  ierr = MPI_Type_size(base_type,&stride);
+  translate_mpi_error(ierr,"strided_to_subarray_dtype:MPI_Type_size");
   ndims = levels+1;
   /* the pointer to the local buffer points to the first data element in
      data exchange, not the origin of the local array, so all starts should
@@ -598,6 +562,7 @@ void strided_to_subarray_dtype(int *stride_array, int *count, int levels,
           i,stride_array[i]);
     }
     printf("p[%d] count[%d]: %d\n",l_state.rank,i,count[i]);
+    translate_mpi_error(ierr,"strided_to_subarray_dtype:MPI_Type_create_subarray");
   }
 }
 
@@ -642,8 +607,14 @@ int cmx_puts(
         == CMX_SUCCESS)) {
     assert(0);
   }
-  MPI_Type_commit(&src_type);
-  MPI_Type_commit(&dst_type);
+  ierr = MPI_Type_commit(&src_type);
+  translate_mpi_error(ierr,"cmx_puts:MPI_Type_commit");
+  ierr = MPI_Type_commit(&dst_type);
+  translate_mpi_error(ierr,"cmx_puts:MPI_Type_commit");
+#ifdef USE_PRIOR_MPI_WIN_FLUSH
+  ierr = MPI_Win_flush(lproc, reg_win->win);
+  translate_mpi_error(ierr,"cmx_puts:MPI_Win_flush");
+#endif
 #ifdef USE_MPI_REQUESTS
 #ifdef USE_MPI_FLUSH_LOCAL
   ierr = MPI_Put(src_ptr, 1, src_type, lproc, displ, 1, dst_type,
@@ -667,8 +638,10 @@ int cmx_puts(
   ierr = MPI_Win_unlock(lproc,win);
   translate_mpi_error(ierr,"cmx_puts:MPI_Win_unlock");
 #endif
-  MPI_Type_free(&src_type);
-  MPI_Type_free(&dst_type);
+  ierr = MPI_Type_free(&src_type);
+  translate_mpi_error(ierr,"cmx_puts:MPI_Type_free");
+  ierr = MPI_Type_free(&dst_type);
+  translate_mpi_error(ierr,"cmx_puts:MPI_Type_free");
   return CMX_SUCCESS;
 }
 
@@ -714,8 +687,14 @@ int cmx_gets(
         == CMX_SUCCESS)) {
     assert(0);
   }
-  MPI_Type_commit(&src_type);
-  MPI_Type_commit(&dst_type);
+  ierr = MPI_Type_commit(&src_type);
+  translate_mpi_error(ierr,"cmx_gets:MPI_Type_commit");
+  ierr = MPI_Type_commit(&dst_type);
+  translate_mpi_error(ierr,"cmx_gets:MPI_Type_commit");
+#ifdef USE_PRIOR_MPI_WIN_FLUSH
+  ierr = MPI_Win_flush(lproc, reg_win->win);
+  translate_mpi_error(ierr,"cmx_gets:MPI_Win_flush");
+#endif
 #ifdef USE_MPI_REQUESTS
 #ifdef USE_MPI_FLUSH_LOCAL
   ierr = MPI_Get(dst_ptr, 1, dst_type, lproc, displ, 1, src_type,
@@ -739,8 +718,10 @@ int cmx_gets(
   ierr = MPI_Win_unlock(lproc,win);
   translate_mpi_error(ierr,"cmx_gets:MPI_Win_lock");
 #endif
-  MPI_Type_free(&src_type);
-  MPI_Type_free(&dst_type);
+  ierr = MPI_Type_free(&src_type);
+  translate_mpi_error(ierr,"cmx_gets:MPI_Type_free");
+  ierr = MPI_Type_free(&dst_type);
+  translate_mpi_error(ierr,"cmx_gets:MPI_Type_free");
   return CMX_SUCCESS;
 }
 
@@ -902,9 +883,11 @@ int cmx_accs(
     float ciscale = *((float*)scale+1);
     cmxInt nvar = bufsize/(2*sizeof(float));
     buf = (float*)packbuf;
+    float tmp;
     for (i=0; i<nvar; i++) {
+      tmp = buf[2*i];
       buf[2*i] = crscale*buf[2*i]-ciscale*buf[2*i+1];
-      buf[2*i+1] = ciscale*buf[2*i]+crscale*buf[2*i+1];
+      buf[2*i+1] = ciscale*tmp+crscale*buf[2*i+1];
     }
     new_count[0] = new_count[0]/sizeof(float);
     strided_to_subarray_dtype(new_strides, new_count, stride_levels,
@@ -917,9 +900,11 @@ int cmx_accs(
     double ciscale = *((double*)scale+1);
     cmxInt nvar = bufsize/(2*sizeof(double));
     buf = (double*)packbuf;
+    double tmp;
     for (i=0; i<nvar; i++) {
+      tmp = buf[2*i];
       buf[2*i] = crscale*buf[2*i]-ciscale*buf[2*i+1];
-      buf[2*i+1] = ciscale*buf[2*i]+crscale*buf[2*i+1];
+      buf[2*i+1] = ciscale*tmp+crscale*buf[2*i+1];
     }
     new_count[0] = new_count[0]/sizeof(double);
     strided_to_subarray_dtype(new_strides, new_count, stride_levels,
@@ -929,8 +914,14 @@ int cmx_accs(
   } else {
     assert(0);
   }
-  MPI_Type_commit(&src_type);
-  MPI_Type_commit(&dst_type);
+  ierr = MPI_Type_commit(&src_type);
+  translate_mpi_error(ierr,"cmx_accs:MPI_Type_commit");
+  ierr = MPI_Type_commit(&dst_type);
+  translate_mpi_error(ierr,"cmx_accs:MPI_Type_commit");
+#ifdef USE_PRIOR_MPI_WIN_FLUSH
+  ierr = MPI_Win_flush(lproc, reg_win->win);
+  translate_mpi_error(ierr,"cmx_accs:MPI_Win_flush");
+#endif
 #ifdef USE_MPI_REQUESTS
 #ifdef USE_MPI_FLUSH_LOCAL
   ierr = MPI_Accumulate(packbuf,1,src_type,lproc,displ,1,dst_type,
@@ -954,8 +945,10 @@ int cmx_accs(
   ierr = MPI_Win_unlock(lproc,win);
   translate_mpi_error(ierr,"cmx_accs:MPI_Win_unlock");
 #endif
-  MPI_Type_free(&src_type);
-  MPI_Type_free(&dst_type);
+  ierr = MPI_Type_free(&src_type);
+  translate_mpi_error(ierr,"cmx_accs:MPI_Type_free");
+  ierr = MPI_Type_free(&dst_type);
+  translate_mpi_error(ierr,"cmx_accs:MPI_Type_free");
   free(packbuf);
 
   return CMX_SUCCESS;
@@ -975,7 +968,7 @@ void vector_to_struct_dtype(void* loc_ptr, cmx_giov_t *iov,
     int iov_len, MPI_Datatype base_type, MPI_Datatype *loc_type,
     MPI_Datatype *rem_type)
 {
-  cmxInt i, j, size;
+  cmxInt i, j, size, ierr;
   cmxInt nelems, icnt;
   cmxInt *blocklengths;
   MPI_Aint *displacements;
@@ -1001,8 +994,9 @@ void vector_to_struct_dtype(void* loc_ptr, cmx_giov_t *iov,
       icnt++;
     }
   }
-  MPI_Type_create_struct(nelems, blocklengths, displacements, types,
+  ierr = MPI_Type_create_struct(nelems, blocklengths, displacements, types,
       loc_type);
+  translate_mpi_error(ierr,"vector_to_struct_dtype:MPI_Type_create_struct");
   icnt = 0;
   for (i=0; i<iov_len; i++) {
     for (j=0; j<iov[i].count; j++) {
@@ -1011,8 +1005,9 @@ void vector_to_struct_dtype(void* loc_ptr, cmx_giov_t *iov,
       icnt++;
     }
   }
-  MPI_Type_create_struct(nelems, blocklengths, displacements, types,
+  ierr = MPI_Type_create_struct(nelems, blocklengths, displacements, types,
       rem_type);
+  translate_mpi_error(ierr,"vector_to_struct_dtype:MPI_Type_create_struct");
 }
 
 /**
@@ -1043,8 +1038,14 @@ int cmx_putv(
         == CMX_SUCCESS)) {
     assert(0);
   }
-  MPI_Type_commit(&src_type);
-  MPI_Type_commit(&dst_type);
+  ierr = MPI_Type_commit(&src_type);
+  translate_mpi_error(ierr,"cmx_putv:MPI_Type_commit");
+  ierr = MPI_Type_commit(&dst_type);
+  translate_mpi_error(ierr,"cmx_putv:MPI_Type_commit");
+#ifdef USE_PRIOR_MPI_WIN_FLUSH
+  ierr = MPI_Win_flush(lproc, reg_win->win);
+  translate_mpi_error(ierr,"cmx_putv:MPI_Win_flush");
+#endif
 #ifdef USE_MPI_REQUESTS
 #ifdef USE_MPI_FLUSH_LOCAL
   ierr = MPI_Put(src_ptr, 1, src_type, lproc, displ, 1, dst_type,
@@ -1068,8 +1069,10 @@ int cmx_putv(
   ierr = MPI_Win_unlock(lproc,win);
   translate_mpi_error(ierr,"cmx_putv:MPI_Win_unlock");
 #endif
-  MPI_Type_free(&src_type);
-  MPI_Type_free(&dst_type);
+  ierr = MPI_Type_free(&src_type);
+  translate_mpi_error(ierr,"cmx_putv:MPI_Type_free");
+  ierr = MPI_Type_free(&dst_type);
+  translate_mpi_error(ierr,"cmx_putv:MPI_Type_free");
   return CMX_SUCCESS;
 }
 
@@ -1101,8 +1104,14 @@ int cmx_getv(
         == CMX_SUCCESS)) {
     assert(0);
   }
-  MPI_Type_commit(&src_type);
-  MPI_Type_commit(&dst_type);
+  ierr = MPI_Type_commit(&src_type);
+  translate_mpi_error(ierr,"cmx_getv:MPI_Type_commit");
+  ierr = MPI_Type_commit(&dst_type);
+  translate_mpi_error(ierr,"cmx_getv:MPI_Type_commit");
+#ifdef USE_PRIOR_MPI_WIN_FLUSH
+  ierr = MPI_Win_flush(lproc, reg_win->win);
+  translate_mpi_error(ierr,"cmx_getv:MPI_Win_flush");
+#endif
 #ifdef USE_MPI_REQUESTS
 #ifdef USE_MPI_FLUSH_LOCAL
   ierr = MPI_Get(dst_ptr, 1, dst_type, lproc, displ, 1, src_type,
@@ -1126,8 +1135,10 @@ int cmx_getv(
   ierr = MPI_Win_unlock(lproc,win);
   translate_mpi_error(ierr,"cmx_getv:MPI_Win_unlock");
 #endif
-  MPI_Type_free(&src_type);
-  MPI_Type_free(&dst_type);
+  ierr = MPI_Type_free(&src_type);
+  translate_mpi_error(ierr,"cmx_getv:MPI_Type_free");
+  ierr = MPI_Type_free(&dst_type);
+  translate_mpi_error(ierr,"cmx_getv:MPI_Type_free");
   return CMX_SUCCESS;
 }
 
@@ -1149,7 +1160,7 @@ void* create_vector_buf_and_dtypes(void *loc_ptr,
     void *scale, MPI_Datatype base_type,
     MPI_Datatype *src_type, MPI_Datatype *dst_type)
 {
-  int i, j, size;
+  int i, j, size, ierr;
   int nelems, icnt, ratio;
   void* src_buf;
   int *blocklengths;
@@ -1237,8 +1248,8 @@ void* create_vector_buf_and_dtypes(void *loc_ptr,
     icnt = 0;
     for (i=0; i<iov_len; i++) {
       for (j=0; j<iov[i].count; j++) {
-        rval = *((double*)(iov[i].loc[2*j]));
-        ival = *((double*)(iov[i].loc[2*j+1]));
+        rval = *((double*)(iov[i].loc[j]));
+        ival = *((double*)(iov[i].loc[j])+1);
         buf[2*icnt] = rval*crscale-ival*ciscale;
         buf[2*icnt+1] = rval*ciscale+ival*crscale;
         icnt++;
@@ -1329,8 +1340,9 @@ void* create_vector_buf_and_dtypes(void *loc_ptr,
       }
     }
   }
-  MPI_Type_create_struct(nelems, blocklengths, displacements, types,
+  ierr = MPI_Type_create_struct(nelems, blocklengths, displacements, types,
       src_type);
+  translate_mpi_error(ierr,"create_vector_buf_and_dtypes:MPI_Type_create_struct");
   icnt = 0;
   for (i=0; i<iov_len; i++) {
     for (j=0; j<iov[i].count; j++) {
@@ -1339,8 +1351,9 @@ void* create_vector_buf_and_dtypes(void *loc_ptr,
       icnt++;
     }
   }
-  MPI_Type_create_struct(nelems, blocklengths, displacements, types,
+  ierr = MPI_Type_create_struct(nelems, blocklengths, displacements, types,
       dst_type);
+  translate_mpi_error(ierr,"create_vector_buf_and_dtypes:MPI_Type_create_struct");
   return src_buf;
 }
 
@@ -1396,8 +1409,14 @@ int cmx_accv(
         == CMX_SUCCESS)) {
     assert(0);
   }
-  MPI_Type_commit(&src_type);
-  MPI_Type_commit(&dst_type);
+  ierr = MPI_Type_commit(&src_type);
+  translate_mpi_error(ierr,"cmx_accv:MPI_Type_commit");
+  ierr = MPI_Type_commit(&dst_type);
+  translate_mpi_error(ierr,"cmx_accv:MPI_Type_commit");
+#ifdef USE_PRIOR_MPI_WIN_FLUSH
+  ierr = MPI_Win_flush(lproc, reg_win->win);
+  translate_mpi_error(ierr,"cmx_getv:MPI_Win_flush");
+#endif
 #ifdef USE_MPI_REQUESTS
 #ifdef USE_MPI_FLUSH_LOCAL
   ierr = MPI_Accumulate(src_ptr,1,src_type,lproc,displ,1,dst_type,
@@ -1421,8 +1440,10 @@ int cmx_accv(
   ierr = MPI_Win_unlock(lproc,win);
   translate_mpi_error(ierr,"cmx_accv:MPI_Win_unlock");
 #endif
-  MPI_Type_free(&src_type);
-  MPI_Type_free(&dst_type);
+  ierr = MPI_Type_free(&src_type);
+  translate_mpi_error(ierr,"cmx_accv:MPI_Type_free");
+  ierr = MPI_Type_free(&dst_type);
+  translate_mpi_error(ierr,"cmx_accv:MPI_Type_free");
   free(src_ptr);
   return CMX_SUCCESS;
 }
@@ -1445,7 +1466,17 @@ int cmx_fence_all(cmx_group_t group)
  */
 int cmx_fence_proc(int proc, cmx_group_t group)
 {
-  /*return cmx_wait_all(group);*/
+  cmx_igroup_t *igroup = group;
+  win_link_t *curr_win;
+  int ierr;
+  if (igroup != NULL) {
+    curr_win = igroup->win_list;
+    while (curr_win != NULL) {
+      ierr = MPI_Win_flush(proc, curr_win->win);
+      translate_mpi_error(ierr,"cmx_fence_proc:MPI_Win_flush");
+      curr_win = curr_win->next;
+    }
+  }
   return CMX_SUCCESS;
 }
 
@@ -1475,8 +1506,10 @@ void *cmx_malloc_local(size_t size)
     ptr = NULL;
   } else {
     MPI_Aint tsize;
+    int ierr;
     tsize = size;
-    MPI_Alloc_mem(tsize,MPI_INFO_NULL,&ptr);
+    ierr = MPI_Alloc_mem(tsize,MPI_INFO_NULL,&ptr);
+    translate_mpi_error(ierr,"cmx_malloc_local:MPI_Alloc_mem");
   }
   return ptr;
 }
@@ -1489,7 +1522,9 @@ void *cmx_malloc_local(size_t size)
 int cmx_free_local(void *ptr)
 {
   if (ptr != NULL) {
-    MPI_Free_mem(ptr);
+    int ierr;
+    ierr = MPI_Free_mem(ptr);
+    translate_mpi_error(ierr,"cmx_free_local:MPI_Free_mem");
   }
 
   return CMX_SUCCESS;
@@ -1500,7 +1535,7 @@ int cmx_free_local(void *ptr)
  */
 int cmx_finalize()
 {
-  int i;
+  int i, ierr;
   /* it's okay to call multiple times -- extra calls are no-ops */
   if (!initialized) {
     return CMX_SUCCESS;
@@ -1517,7 +1552,10 @@ int cmx_finalize()
   MPI_Barrier(l_state.world_comm);
 
   /* destroy the communicators */
-  MPI_Comm_free(&l_state.world_comm);
+#if 1
+  ierr = MPI_Comm_free(&l_state.world_comm);
+  translate_mpi_error(ierr,"cmx_finalize:MPI_Comm_free");
+#endif
 
   /* Clean up request list */
 #ifdef ZUSE_MPI_REQUESTS
@@ -1551,12 +1589,18 @@ int cmx_wait_proc(int proc, cmx_group_t group)
  */
 int cmx_wait(cmx_request_t* req)
 {
+  int ierr;
+#ifndef USE_MPI_DATATYPES
+  return CMX_SUCCESS;
+#endif
 #ifdef USE_MPI_REQUESTS
 #ifdef USE_MPI_FLUSH_LOCAL
-  MPI_Win_flush_local(req->remote_proc,req->win);
+  ierr = MPI_Win_flush_local(req->remote_proc,req->win);
+  translate_mpi_error(ierr,"cmx_wait:MPI_Win_flush_local");
 #else
   MPI_Status status;
-  MPI_Wait(&(req->request),&status);
+  ierr = MPI_Wait(&(req->request),&status);
+  translate_mpi_error(ierr,"cmx_wait:MPI_Wait");
 #endif
   req->active = 0;
 #else
@@ -1700,13 +1744,13 @@ int cmx_nbget(
     assert(0);
   }
 #ifdef USE_MPI_FLUSH_LOCAL
-  MPI_Get(dst, bytes, MPI_CHAR, lproc, displ, bytes, MPI_CHAR,
+  ierr = MPI_Get(dst, bytes, MPI_CHAR, lproc, displ, bytes, MPI_CHAR,
       win);
   translate_mpi_error(ierr,"cmx_nbget:MPI_Get");
   req->remote_proc = lproc;
   req->win = win;
 #else
-  MPI_Rget(dst, bytes, MPI_CHAR, lproc, displ, bytes, MPI_CHAR,
+  ierr = MPI_Rget(dst, bytes, MPI_CHAR, lproc, displ, bytes, MPI_CHAR,
       win, &request);
   translate_mpi_error(ierr,"cmx_nbget:MPI_Rget");
 #endif
