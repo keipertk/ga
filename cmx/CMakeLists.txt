@@ -37,7 +37,7 @@ project (CMX)
 
 option (CMX_RUNTIME, "Protocols using to build CMX" MPI_RMA)
 option (MPI_RMA "use MPI RMA protocols for communication" ON)
-include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR} src-common)
+include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR} src-common src-armci)
 if (MPI_RMA)
   set(CMX_DEVICE
     src-mpi-rma/cmx.c
@@ -46,6 +46,15 @@ if (MPI_RMA)
   set (CMX_NETWORK_MPI_RMA ON)
   include_directories(AFTER src-mpi-rma)
 endif()
+
+set(ARMCI_API
+  src-armci/armci.c
+  src-armci/capi.c
+  src-armci/groups.c
+  src-armci/iterator.c
+  src-armci/message.c
+  src-armci/reg_entry.c
+)
 
 find_package(MPI)
 
@@ -391,6 +400,34 @@ target_link_libraries(cmx)
 
 install (TARGETS
   cmx
+  DESTINATION lib
+)
+
+# -------------------------------------------------------------
+# ARMCI header installation
+# -------------------------------------------------------------
+
+set(ARMCI_DEVICE_HEADERS
+  src-armci/armci.h
+)
+
+install (FILES
+  ${ARMCI_DEVICE_HEADERS}
+  DESTINATION include
+)
+
+# -------------------------------------------------------------
+# ARMCI library installation
+# -------------------------------------------------------------
+
+add_library(armci
+ ${ARMCI_API}
+)
+
+target_link_libraries(armci)
+
+install (TARGETS
+  armci
   DESTINATION lib
 )
 

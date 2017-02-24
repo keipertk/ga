@@ -2771,6 +2771,32 @@ int cmx_malloc(cmx_handle_t *handle, cmxInt bytes, cmx_group_t group)
   return CMX_SUCCESS;
 }
 
+/**
+ * Access local buffer from CMX handle
+ * @param handle CMX handle for data allocation
+ * @param buf pointer to local buffer
+ * @return CMX_SUCCESS on success
+ */
+int cmx_access(cmx_handle_t cmx_hdl, void **buf)
+{
+  *buf = cmx_hdl.buf;
+  return CMX_SUCCESS;
+}
+
+/**
+ * Extact group object from CMX allocation handle
+ *
+ * @param handle CMX handle for data allocation
+ * @param group CMX group associated with CMX data allocation
+ * @return CMX_SUCCESS on success
+ */
+int cmx_get_group_from_handle(cmx_handle_t handle, cmx_group_t **group)
+{
+  *group = handle.group;
+  return CMX_SUCCESS;
+}
+
+
 
 int cmx_free(cmx_handle_t handle)
 {

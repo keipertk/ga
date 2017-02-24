@@ -53,14 +53,14 @@ typedef _cmx_request cmx_request_t;
 /**
  * Initialize cmx.
  *
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_init();
 
 /**
  * Initialize cmx with command line arguments.
  *
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_init_args(int *argc, char ***argv);
 
@@ -75,7 +75,7 @@ extern int cmx_initialized();
 /**
  * Terminate cmx and clean up resources.
  *
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_finalize();
 
@@ -111,7 +111,7 @@ extern int cmx_group_create(
  * Marks the group for deallocation.
  *
  * @param[in] group group to be destroyed
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_group_free(cmx_group_t group);
 
@@ -120,7 +120,7 @@ extern int cmx_group_free(cmx_group_t group);
  *
  * @param[in] group group handle
  * @param[out] rank rank of the calling process in the group
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_group_rank(cmx_group_t group, int *rank);
 
@@ -129,7 +129,7 @@ extern int cmx_group_rank(cmx_group_t group, int *rank);
  *
  * @param[in] group group handle
  * @param[out] size number of processes in the group
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_group_size(cmx_group_t group, int *size);
 
@@ -142,7 +142,7 @@ extern int cmx_group_size(cmx_group_t group, int *size);
  *
  * @param[in] group group handle
  * @param[out] comm the communicator handle
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_group_comm(cmx_group_t group, MPI_Comm *comm);
 
@@ -154,7 +154,7 @@ extern int cmx_group_comm(cmx_group_t group, MPI_Comm *comm);
  * @param[in] ranks_from array of zer or more valid ranks in group_from
  * @param[in] group_to the group to translate ranks to 
  * @param[out] ranks_to array of corresponding ranks in group_to
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_group_translate_ranks(int n,
         cmx_group_t group_from, int *ranks_from,
@@ -169,10 +169,18 @@ extern int cmx_group_translate_ranks(int n,
  * @param[in] group the group to translate from
  * @param[in] group_rank the rank to translate from
  * @param[out] world_rank the corresponding world rank
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_group_translate_world(
         cmx_group_t group, int group_rank, int *world_rank);
+/**
+ * Extact group object from CMX allocation handle
+ *
+ * @param[in] handle CMX handle for data allocation
+ * @param[out] group CMX group associated with CMX data allocation
+ * @return CMX_SUCCESS on success
+ */
+extern int cmx_get_group_from_handle(cmx_handle_t handle, cmx_group_t **group);
 
 /**
  * A collective communication and operations barrier.
@@ -181,7 +189,7 @@ extern int cmx_group_translate_world(
  * operations barrier.
  *
  * @param[in] group the group to perform the collective barrier over
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_barrier(cmx_group_t group);
 
@@ -196,7 +204,7 @@ extern int cmx_barrier(cmx_group_t group);
  * @param[in] cmx_hdl handle for data allocation. The calling process
  *            and remote process must belong to the same group as the
  *            allocation
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_put(
         void *src, cmxInt dst_offset, cmxInt bytes,
@@ -251,7 +259,7 @@ extern int cmx_putv(
  *            and remote process must belong to the same group as the
  *            allocation
  * @param[out] req nonblocking request object
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_nbput(
         void *src, cmxInt dst_offset, cmxInt bytes,
@@ -443,7 +451,7 @@ extern int cmx_nbaccv(
  * @param[in] cmx_hdl handle for data allocation. The calling process
  *            and remote process must belong to the same group as the
  *            allocation
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_get(
         void *dst, cmxInt src_offset, cmxInt bytes,
@@ -498,7 +506,7 @@ extern int cmx_getv(
  *            and remote process must belong to the same group as the
  *            allocation
  * @param[out] req nonblocking request object
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_nbget(
         void *dst, cmxInt src_offset, cmxInt bytes,
@@ -557,6 +565,14 @@ extern int cmx_nbgetv(
  */
 extern int cmx_malloc(
         cmx_handle_t *cmx_hdl, cmxInt bytes, cmx_group_t group);
+
+/**
+ * Access local buffer from CMX handle
+ * @param[in] handle CMX handle for data allocation
+ * @param buf[out] pointer to local buffer
+ * @return CMX_SUCCESS on success
+ */
+extern int cmx_access(cmx_handle_t cmx_hdl, void **buf);
 
 /**
  * Collective free of memory given the original local pointer.
@@ -672,7 +688,7 @@ extern int cmx_unlock(int mutex, int proc);
  *            amount to increment the remote value by
  * @param[in] proc remote process(or) id
  * @param[in] cmx_hdl handle for data allocation
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_rmw(
         int op, void *ploc, cmxInt rem_offset, int extra,
@@ -682,7 +698,7 @@ extern int cmx_rmw(
  * Waits for completion of non-blocking cmx operations with explicit handles.
  *
  * @param[in] req the request handle
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_wait(cmx_request_t *req);
 
@@ -692,7 +708,7 @@ extern int cmx_wait(cmx_request_t *req);
  *
  * @param[in] req the request handle
  * @param[out] status 0-completed, 1-in progress
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_test(cmx_request_t *req, int *status);
 
@@ -700,7 +716,7 @@ extern int cmx_test(cmx_request_t *req, int *status);
  * Wait for all outstanding implicit non-blocking operations to finish.
  *
  * @param[in] group group handle
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_wait_all(cmx_group_t group);
 
@@ -711,7 +727,7 @@ extern int cmx_wait_all(cmx_group_t group);
  * @param[in] proc proc for which all the outstanding non-blocking operations
  * have to be completed
  * @param[in] group group handle
- * @return CMX_SUCCESS on sucess
+ * @return CMX_SUCCESS on success
  */
 extern int cmx_wait_proc(int proc, cmx_group_t group);
 
