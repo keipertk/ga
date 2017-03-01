@@ -28,6 +28,11 @@ static int nb_max_outstanding = COMEX_MAX_NB_OUTSTANDING;
 static nb_t **_nb_list = NULL;
 
 /**
+ * Useful variable for debugging
+ */
+static int _armci_me;
+
+/**
  * This function checks to see if the data copy is contiguous for both the src
  * and destination buffers. If it is, then a contiguous operation can be used
  * instead of a strided operation. This function is intended for arrays of
@@ -74,24 +79,67 @@ int armci_checkt_contiguous(int *src_stride, int *dst_stride,
  * the destination of the data. Ref is the origin of the buffer on the remote
  * processor.
  */
+#if 0
+typedef struct {
+  void **src_ptr_array;
+  void **dst_ptr_array;
+  int  ptr_array_len;
+  int bytes;
+} armci_giov_t;
+
+typedef struct {
+  void **loc; /**< array of local starting addresses */
+  cmxInt *rem; /**< array of remote offsets */
+  cmxInt count; /**< size of address arrays (src[count],dst[count]) */
+  cmxInt bytes; /**< length in bytes for each src[i]/dst[i] pair */
+} cmx_giov_t;
+#endif
 static void convert_giov(armci_giov_t *a, cmx_giov_t *b, int len, void *ref, int rem)
 {
-  int i;
-  if (rem = 0) {
+  int i,j, nelems;
+  if (rem == 0) {
+    printf("p[%d] local array is destination\n",_armci_me);
     for (i=0; i<len; ++i) {
-      b[i].rem = (MPI_Aint)a[i].src_ptr_array-(MPI_Aint)ref;
-      b[i].loc = a[i].dst_ptr_array;
+      nelems = a[i].ptr_array_len;
       b[i].count = a[i].ptr_array_len;
       b[i].bytes = a[i].bytes;
+      printf("p[%d] i:%d count: %d bytes: %d\n",_armci_me,i,b[i].count,b[i].bytes);
+      b[i].loc = (void**)malloc(nelems*sizeof(void*));
+      b[i].rem = (cmxInt*)malloc(nelems*sizeof(cmxInt));
+      for (j=0; j<nelems; j++) {
+        b[i].loc[j] = a[i].dst_ptr_array[j];
+        b[i].rem[j] = (cmxInt)((MPI_Aint)a[i].src_ptr_array[j]-(MPI_Aint)ref);
+        /*
+    printf("p[%d] loc[%d]: %p rem[%d]: %d\n",_armci_me,j,b[i].loc[j],j,b[i].rem[j]);
+    */
+      }
     }
+    printf("p[%d] completed copy\n",_armci_me);
   } else {
+    printf("p[%d] remote array is destination\n",_armci_me);
     for (i=0; i<len; ++i) {
-      b[i].loc = a[i].src_ptr_array-(MPI_Aint)ref;
-      b[i].rem = (MPI_Aint)a[i].dst_ptr_array-(MPI_Aint)ref;
+      nelems = a[i].ptr_array_len;
       b[i].count = a[i].ptr_array_len;
       b[i].bytes = a[i].bytes;
+      b[i].loc = (void**)malloc(nelems*sizeof(void*));
+      b[i].rem = (cmxInt*)malloc(nelems*sizeof(cmxInt));
+      for (j=0; j<nelems; j++) {
+        b[i].loc[j] = a[i].src_ptr_array[j];
+        b[i].rem[j] = (cmxInt)((MPI_Aint)a[i].dst_ptr_array[j]-(MPI_Aint)ref);
+      }
     }
+    printf("p[%d] completed copy\n",_armci_me);
   }
+}
+
+static void free_giov(cmx_giov_t *a, int len)
+{
+  int i, j;
+  for (i=0; i<len; ++i) {
+    free(a[i].loc);
+    free(a[i].rem);
+  }
+  free(a);
 }
 
 int convert_optype(int op){
@@ -192,7 +240,7 @@ int PARMCI_AccV(int op, void *scale, armci_giov_t *darr, int len, int proc)
   buf = entry->buf;
   convert_giov(darr, adarr, len, buf, 1);
   rc = cmx_accv(op, scale, adarr, len, proc, *(entry->hdl));
-  free(adarr);
+  free_giov(adarr, len);
   return rc;
 }
 
@@ -200,14 +248,17 @@ int PARMCI_AccV(int op, void *scale, armci_giov_t *darr, int len, int proc)
 /* fence is always on the world group */
 void PARMCI_AllFence()
 {
-  assert(CMX_SUCCESS == cmx_fence_all(CMX_GROUP_WORLD));
+  int ierr = cmx_fence_all(CMX_GROUP_WORLD);
+  assert(CMX_SUCCESS == ierr);
 }
 
 
 void PARMCI_Barrier()
 {
+  int ierr;
   cmx_group_t *grp = armci_get_cmx_group(ARMCI_Default_Proc_Group);
-  assert(CMX_SUCCESS == cmx_barrier(*grp));
+  ierr = cmx_barrier(*grp);
+  assert(CMX_SUCCESS == ierr);
 }
 
 
@@ -318,44 +369,48 @@ int PARMCI_GetV(armci_giov_t *darr, int len, int proc)
   buf = entry->buf;
   convert_giov(darr, adarr, len, buf, 0);
   rc = cmx_getv(adarr, len, proc, *(entry->hdl));
-  free(adarr);
+  free_giov(adarr, len);
   return rc;
 }
 
 
 double PARMCI_GetValueDouble(void *src, int proc)
 {
-    double val;
-    assert(CMX_SUCCESS == 
-            PARMCI_Get(src, &val, sizeof(double), proc));
-    return val;
+  int ierr;
+  double val;
+  ierr = PARMCI_Get(src, &val, sizeof(double), proc);
+  assert(CMX_SUCCESS == ierr);
+  return val;
 }
 
 
 float PARMCI_GetValueFloat(void *src, int proc)
 {
-    float val;
-    assert(CMX_SUCCESS == 
-            PARMCI_Get(src, &val, sizeof(float), proc));
-    return val;
+  int ierr;
+  float val;
+  ierr = PARMCI_Get(src, &val, sizeof(float), proc);
+  assert(CMX_SUCCESS == ierr);
+  return val;
 }
 
 
 int PARMCI_GetValueInt(void *src, int proc)
 {
-    int val;
-    assert(CMX_SUCCESS == 
-            PARMCI_Get(src, &val, sizeof(int), proc));
-    return val;
+  int ierr;
+  int val;
+  ierr = PARMCI_Get(src, &val, sizeof(int), proc);
+  assert(CMX_SUCCESS == ierr);
+  return val;
 }
 
 
 long PARMCI_GetValueLong(void *src, int proc)
 {
-    long val;
-    assert(CMX_SUCCESS == 
-            PARMCI_Get(src, &val, sizeof(long), proc));
-    return val;
+  int ierr;
+  long val;
+  ierr = PARMCI_Get(src, &val, sizeof(long), proc);
+  assert(CMX_SUCCESS == ierr);
+  return val;
 }
 
 
@@ -365,6 +420,7 @@ int PARMCI_Init()
   int rc = cmx_init();
   armci_group_init();
   cmx_group_size(CMX_GROUP_WORLD,&size);
+  cmx_group_rank(CMX_GROUP_WORLD,&_armci_me);
   reg_entry_init(size);
 
   /* initialize non-blocking handles */
@@ -384,6 +440,7 @@ int PARMCI_Init_args(int *argc, char ***argv)
   int rc = cmx_init_args(argc, argv);
   armci_group_init();
   cmx_group_size(CMX_GROUP_WORLD,&size);
+  cmx_group_rank(CMX_GROUP_WORLD,&_armci_me);
   reg_entry_init(size);
 
   /* initialize non-blocking handles */
@@ -429,7 +486,7 @@ int PARMCI_Malloc_group(void **ptr_arr, armci_size_t bytes, ARMCI_Group *group)
   /* ptr_array should already have been allocated externally */
   CMX_ASSERT(ptr_arr);
 
-  cmx_group_comm(*(igroup->group), &comm);
+  cmx_group_comm(*cmx_grp, &comm);
   assert(comm != MPI_COMM_NULL);
   MPI_Comm_rank(comm, &comm_rank);
   MPI_Comm_size(comm, &comm_size);
@@ -451,12 +508,15 @@ int PARMCI_Malloc_group(void **ptr_arr, armci_size_t bytes, ARMCI_Group *group)
   MPI_Allgather(&entry, sizeof(reg_entry_t), MPI_BYTE, reg_entries,
       sizeof(reg_entry_t), MPI_BYTE, comm);
   for (i=0; i<comm_size; i++) {
+    reg_entry_t *node;
     int world_rank;
-    assert(CMX_SUCCESS == cmx_group_translate_world(cmx_grp,i,&world_rank));
+    int ierr;
+    ierr = cmx_group_translate_world(*cmx_grp,i,&world_rank);
+    assert(CMX_SUCCESS == ierr);
     if (i != comm_rank) {
       reg_entries[i].hdl = handle;
     }
-    reg_entry_insert(world_rank, reg_entries[i].buf, reg_entries[i].len,
+    node = reg_entry_insert(world_rank, reg_entries[i].buf, reg_entries[i].len,
         reg_entries[i].hdl);
     ptr_arr[i] = reg_entries[i].buf;
   }
@@ -607,10 +667,9 @@ int PARMCI_NbAccV(int op, void *scale, armci_giov_t *darr, int len, int proc, ar
   get_nb_request(nb_handle, &req);
   rc = cmx_nbaccv(op, scale, adarr, len, proc, *(entry->hdl), &(req->request));
   req->active = 1;
-  free(adarr);
+  free_giov(adarr, len);
   return rc;
 }
-
 
 int PARMCI_NbGet(void *src, void *dst, int bytes, int proc, armci_hdl_t *nb_handle)
 {
@@ -665,14 +724,14 @@ int PARMCI_NbGetV(armci_giov_t *darr, int len, int proc, armci_hdl_t *nb_handle)
   cmx_giov_t *adarr = malloc(sizeof(cmx_giov_t) * len);
   /* find location of buffer on remote processor. Start by finding a buffer
    * location on the remote array */
-  buf = (darr[0].dst_ptr_array)[0];
+  buf = (darr[0].src_ptr_array)[0];
   entry = reg_entry_find(proc,buf,0);
   buf = entry->buf;
   convert_giov(darr, adarr, len, buf, 0);
   get_nb_request(nb_handle, &req);
   rc = cmx_nbgetv(adarr, len, proc, *(entry->hdl), &(req->request));
   req->active = 1;
-  free(adarr);
+  free_giov(adarr, len);
   return rc;
 }
 
@@ -737,7 +796,7 @@ int PARMCI_NbPutV(armci_giov_t *darr, int len, int proc, armci_hdl_t *nb_handle)
   get_nb_request(nb_handle, &req);
   rc = cmx_nbputv(adarr, len, proc, *(entry->hdl), &(req->request));
   req->active = 1;
-  free(adarr);
+  free_giov(adarr, len);
   return rc;
 }
 
@@ -829,7 +888,7 @@ int PARMCI_PutV(armci_giov_t *darr, int len, int proc)
   buf = entry->buf;
   convert_giov(darr, adarr, len, buf, 1);
   rc = cmx_putv(adarr, len, proc, *(entry->hdl));
-  free(adarr);
+  free_giov(adarr, len);
   return rc;
 }
 
@@ -880,10 +939,10 @@ int PARMCI_Rmw(int op, void *ploc, void *prem, int extra, int proc)
 
 int PARMCI_Test(armci_hdl_t *nb_handle)
 {
-  int status;
-  nb_t *req;
-  get_nb_request(nb_handle, &req);
-  assert(CMX_SUCCESS == cmx_test(req->request, &status));
+  int status, ierr;
+  nb_t *req = _nb_list[*nb_handle];
+  ierr = cmx_test(&(req->request), &status);
+  assert(CMX_SUCCESS == ierr);
   return status;
 }
 
@@ -897,8 +956,8 @@ void PARMCI_Unlock(int mutex, int proc)
 int PARMCI_Wait(armci_hdl_t *nb_handle)
 {
   int ret;
-  nb_t *req;
-  get_nb_request(nb_handle, &req);
+  nb_t *req = _nb_list[*nb_handle];
+  printf("p[%d] req->active: %d\n",_armci_me,req->active);
   ret = cmx_wait(&(req->request));
   req->active = 0;
 }

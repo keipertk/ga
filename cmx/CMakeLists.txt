@@ -421,7 +421,7 @@ install (FILES
 # -------------------------------------------------------------
 
 add_library(armci
- ${ARMCI_API}
+ ${ARMCI_API} ${CMX_DEVICE}
 )
 
 target_link_libraries(armci)
@@ -451,3 +451,9 @@ target_link_libraries(perf_strided.x cmx)
 
 add_executable(shift.x testing/shift.c)
 target_link_libraries(shift.x cmx)
+
+# -------------------------------------------------------------
+# ARMCI test programs
+# -------------------------------------------------------------
+add_executable(testwrap.x src-armci/testing/testwrap.c)
+target_link_libraries(testwrap.x armci)

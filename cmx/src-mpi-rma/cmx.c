@@ -12,8 +12,8 @@
 /* Configuration options */
 #define DEBUG 0
 
-/*
 #define USE_MPI_REQUESTS
+/*
 #define USE_MPI_FLUSH_LOCAL
 #define USE_MPI_WIN_ALLOC
 */
@@ -1590,9 +1590,6 @@ int cmx_wait_proc(int proc, cmx_group_t group)
 int cmx_wait(cmx_request_t* req)
 {
   int ierr;
-#ifndef USE_MPI_DATATYPES
-  return CMX_SUCCESS;
-#endif
 #ifdef USE_MPI_REQUESTS
 #ifdef USE_MPI_FLUSH_LOCAL
   ierr = MPI_Win_flush_local(req->remote_proc,req->win);
@@ -1703,9 +1700,6 @@ int cmx_nbput(
 #endif
   req->request = request;
   req->active = 1;
-#ifdef USE_MPI_FLUSH_LOCAL
-  req->remote_proc = lproc;
-#endif
   return CMX_SUCCESS;
 #else
   return cmx_put(src, dst_offset, bytes, proc, cmx_hdl);
@@ -2424,9 +2418,6 @@ int cmx_nbaccv(
 #endif
   req->request = request;
   req->active = 1;
-#ifdef USE_MPI_FLUSH_LOCAL
-  req->remote_proc = lproc;
-#endif
   MPI_Type_free(&src_type);
   MPI_Type_free(&dst_type);
   free(src_ptr);

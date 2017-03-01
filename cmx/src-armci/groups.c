@@ -117,6 +117,7 @@ void armci_group_init()
   _iarm_group_list->id = 0;
   _iarm_group_list->next = NULL;
   _iarm_group_list->handle_list = NULL;
+  _iarm_group_list->group = &CMX_GROUP_WORLD;
 }
 
 /**

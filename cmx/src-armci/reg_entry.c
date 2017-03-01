@@ -504,9 +504,9 @@ reg_entry_insert(int rank, void *buf, int len, cmx_handle_t *cmx_hdl)
 {
   reg_entry_t *node = NULL;
 
-#if DEBUG
-  printf("[%d] reg_entry_insert(rank=%d, buf=%p, len=%d, name=%s, mapped=%p)\n",
-      g_state.rank, rank, buf, len, name, mapped);
+#ifdef TEST_DEBUG
+  printf("[%d] reg_entry_insert(rank=%d, buf=%p, len=%d)\n",
+      reg_entry_rank, rank, buf, len);
 #endif
 
   /* preconditions */
@@ -532,8 +532,7 @@ reg_entry_insert(int rank, void *buf, int len, cmx_handle_t *cmx_hdl)
   /* push new entry to tail of linked list */
   if (NULL == reg_entry[rank]) {
     reg_entry[rank] = node;
-  }
-  else {
+  } else {
     reg_entry_t *runner = reg_entry[rank];
     while (runner->next) {
       runner = runner->next;
