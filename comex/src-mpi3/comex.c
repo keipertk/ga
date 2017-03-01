@@ -93,7 +93,7 @@ void get_nb_request(comex_request_t *handle, nb_t **req)
     *handle = i;
     *req = nb_list[i];
   } else {
-    i = -1;
+    *handle = -1;
     req = NULL;
   }
 }
@@ -1977,9 +1977,6 @@ int comex_nbput(
 #endif
     req->request = request;
     req->active = 1;
-#ifdef USE_MPI_FLUSH_LOCAL
-    req->remote_proc = lproc;
-#endif
     return COMEX_SUCCESS;
 #else
     return comex_put(src, dst, bytes, proc, group);
@@ -2679,9 +2676,9 @@ int comex_nbaccv(
     }
     get_nb_request(handle, &req);
     ierr = MPI_Type_commit(&src_type);
-    translate_mpi_error(ierr,"comex_nbaccs:MPI_Type_commit");
+    translate_mpi_error(ierr,"comex_nbaccv:MPI_Type_commit");
     ierr = MPI_Type_commit(&dst_type);
-    translate_mpi_error(ierr,"comex_nbaccs:MPI_Type_commit");
+    translate_mpi_error(ierr,"comex_nbaccv:MPI_Type_commit");
 #ifdef USE_MPI_FLUSH_LOCAL
     ierr = MPI_Accumulate(src_ptr,1,src_type,lproc,displ,1,dst_type,
         MPI_SUM,reg_win->win);
@@ -2695,9 +2692,6 @@ int comex_nbaccv(
 #endif
     req->request = request;
     req->active = 1;
-#ifdef USE_MPI_FLUSH_LOCAL
-    req->remote_proc = lproc;
-#endif
     ierr = MPI_Type_free(&src_type);
     translate_mpi_error(ierr,"comex_nbaccv:MPI_Type_free");
     ierr = MPI_Type_free(&dst_type);
