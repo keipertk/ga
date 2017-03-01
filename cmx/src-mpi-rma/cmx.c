@@ -2312,6 +2312,13 @@ int cmx_nbgetv(
   MPI_Win win = cmx_hdl.win;
   MPI_Request request;
   MPI_Status status;
+  /**
+   * ALERT: This is a temporary hack to get the ARMCI interface to work.
+   * The CMX tests work but the corresponding ARMCI interface tests don't
+   * which may reflect issues with the underlying MPI implementation or a
+   * problem with CMX. This issue needs to be revisited.
+   */
+  return cmx_getv(iov, iov_len, proc, cmx_hdl);
   if (req == NULL) {
     return cmx_getv(iov, iov_len, proc, cmx_hdl);
   }

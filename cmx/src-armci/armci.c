@@ -98,25 +98,18 @@ static void convert_giov(armci_giov_t *a, cmx_giov_t *b, int len, void *ref, int
 {
   int i,j, nelems;
   if (rem == 0) {
-    printf("p[%d] local array is destination\n",_armci_me);
     for (i=0; i<len; ++i) {
       nelems = a[i].ptr_array_len;
       b[i].count = a[i].ptr_array_len;
       b[i].bytes = a[i].bytes;
-      printf("p[%d] i:%d count: %d bytes: %d\n",_armci_me,i,b[i].count,b[i].bytes);
       b[i].loc = (void**)malloc(nelems*sizeof(void*));
       b[i].rem = (cmxInt*)malloc(nelems*sizeof(cmxInt));
       for (j=0; j<nelems; j++) {
         b[i].loc[j] = a[i].dst_ptr_array[j];
         b[i].rem[j] = (cmxInt)((MPI_Aint)a[i].src_ptr_array[j]-(MPI_Aint)ref);
-        /*
-    printf("p[%d] loc[%d]: %p rem[%d]: %d\n",_armci_me,j,b[i].loc[j],j,b[i].rem[j]);
-    */
       }
     }
-    printf("p[%d] completed copy\n",_armci_me);
   } else {
-    printf("p[%d] remote array is destination\n",_armci_me);
     for (i=0; i<len; ++i) {
       nelems = a[i].ptr_array_len;
       b[i].count = a[i].ptr_array_len;
@@ -128,7 +121,6 @@ static void convert_giov(armci_giov_t *a, cmx_giov_t *b, int len, void *ref, int
         b[i].rem[j] = (cmxInt)((MPI_Aint)a[i].dst_ptr_array[j]-(MPI_Aint)ref);
       }
     }
-    printf("p[%d] completed copy\n",_armci_me);
   }
 }
 
@@ -239,6 +231,7 @@ int PARMCI_AccV(int op, void *scale, armci_giov_t *darr, int len, int proc)
   entry = reg_entry_find(proc,buf,0);
   buf = entry->buf;
   convert_giov(darr, adarr, len, buf, 1);
+  op = convert_optype(op);
   rc = cmx_accv(op, scale, adarr, len, proc, *(entry->hdl));
   free_giov(adarr, len);
   return rc;
@@ -957,7 +950,6 @@ int PARMCI_Wait(armci_hdl_t *nb_handle)
 {
   int ret;
   nb_t *req = _nb_list[*nb_handle];
-  printf("p[%d] req->active: %d\n",_armci_me,req->active);
   ret = cmx_wait(&(req->request));
   req->active = 0;
 }

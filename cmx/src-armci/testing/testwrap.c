@@ -727,12 +727,13 @@ void verify_vector_data(double *data, int procs, int isput, int datalen)
   }
   for (i = 0; i < datalen; i++) {
     if (dst != me)
-      if (ARMCI_ABS((data[i] - (me + facto + dst)*((kc + 1)*(j % PTR_ARR_LEN + 1)))) > 0.001) {
+      if (ARMCI_ABS((data[i] - (me + facto + dst)*((kc + 1)
+                * (j % PTR_ARR_LEN + 1)))) > 0.001) {
         printf("\n%d:while verifying data of a op from proc=%d ", me, dst);
         printf("giov index=%d ptr_arr_index=%d \n :element index=%d", kc,
-               (j % PTR_ARR_LEN), k);
+            (j % PTR_ARR_LEN), k);
         printf(" elem was supposed to be %f but is %f",
-               (me + facto + dst)*((kc + 1)*(j % PTR_ARR_LEN + 1)) , data[i]);
+            (me + facto + dst)*((kc + 1)*(j % PTR_ARR_LEN + 1)) , data[i]);
         fflush(stdout);
         sleep(1);
         ARMCI_Error("vector non-blocking failed", 0);
@@ -846,7 +847,6 @@ void test_vec_small()
   if (me == 0) {
     printf("\n\tPuts OK\n");
   }
-  printf("p[%d] Got to 8\n",me);
   /****************Done Testing NbPutV*********************************/
 
   /*********************Testing NbGetV*********************************/
@@ -881,14 +881,12 @@ void test_vec_small()
       ARMCI_Error("putv failed", rc);
     }
   }
-  printf("p[%d] Got to 9\n",me);
   if (me == 0) {
     printf("\n\tNow verifying the vector get data for correctness");
   }
   for (i = 0; i < nproc; i++)if (i != me) {
       ARMCI_Wait(hdl_get + i);
     }
-  printf("p[%d] Got to 10\n",me);
   sleep(1);
   ARMCI_Barrier();
   verify_vector_data((double *)getdst, nproc, 0, nproc * GIOV_ARR_LEN * lenpergiov);
@@ -903,7 +901,6 @@ void test_vec_small()
     free(putsrc[i]);
   }
   free(putsrc);
-  printf("p[%d] Got to 11\n",me);
 }
 
 
@@ -1281,7 +1278,8 @@ void test_vector_acc()
   ARMCI_Barrier();
 
   /* copy my patch into local array c */
-  assert(!ARMCI_Get((double *)b[proc], c, bytes, proc));
+  rc = ARMCI_Get((double *)b[proc], c, bytes, proc);
+  assert(!rc);
 
   /*        scale = alpha*TIMES*nproc; */
   scale = alpha * TIMES * nproc * nproc;
@@ -1438,7 +1436,7 @@ void test_swap()
 void test_memlock()
 {
   int dim, elems, bytes;
-  int i, j, k, proc;
+  int i, j, k, proc, rc;
   double *b[MAXPROC];
   double *a, *c;
 #if 0
@@ -1482,9 +1480,12 @@ void test_memlock()
       bytes = sizeof(double) * elems;
 
       armci_lockmem(pstart, pend, proc);
-      assert(!ARMCI_Put(a, pstart, bytes, proc));
-      assert(!ARMCI_Get(pstart, c, bytes, proc));
-      assert(!ARMCI_Get(pstart, c, bytes, proc));
+      rc = ARMCI_Put(a, pstart, bytes, proc);
+      assert(!rc);
+      rc = ARMCI_Get(pstart, c, bytes, proc);
+      assert(!rc);
+      rc = ARMCI_Get(pstart, c, bytes, proc);
+      assert(!rc);
       armci_unlockmem();
       for (k = 0; k < elems; k++)if (a[k] != c[k]) {
           printf("%d: error patch (%d:%d) elem=%d val=%f\n", me, first, last, k, c[k]);
@@ -2013,7 +2014,6 @@ int main(int argc, char *argv[])
   test_vec_small();
   ARMCI_AllFence();
   ARMCI_Barrier();
-#if 0
 
   if (me == 0) {
     printf("\nTesting atomic accumulate\n");
@@ -2076,6 +2076,7 @@ int main(int argc, char *argv[])
   ARMCI_AllFence();
   ARMCI_Barrier();
 
+#if 0
   if (me == 0) {
     printf("\nTesting aggregate put/get requests\n");
     fflush(stdout);
@@ -2111,6 +2112,7 @@ int main(int argc, char *argv[])
 
   ARMCI_AllFence();
   ARMCI_Barrier();
+#endif
 
 
   ARMCI_Barrier();
@@ -2118,7 +2120,6 @@ int main(int argc, char *argv[])
   test_memlock();
 #endif
 
-#endif
   ARMCI_Barrier();
   if (me == 0) {
     printf("All tests passed\n");
