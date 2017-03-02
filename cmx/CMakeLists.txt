@@ -409,6 +409,7 @@ install (TARGETS
 
 set(ARMCI_DEVICE_HEADERS
   src-armci/armci.h
+  src-armci/message.h
 )
 
 install (FILES

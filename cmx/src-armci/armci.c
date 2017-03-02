@@ -458,7 +458,7 @@ void PARMCI_Lock(int mutex, int proc)
   cmx_lock(mutex, proc);
 }
 
-int PARMCI_Malloc_group(void **ptr_arr, armci_size_t bytes, ARMCI_Group *group)
+int ARMCI_Malloc_group(void **ptr_arr, armci_size_t bytes, ARMCI_Group *group)
 {
   cmx_handle_t *handle = NULL;
   reg_entry_t *reg_entries = NULL;
@@ -517,7 +517,7 @@ int PARMCI_Malloc_group(void **ptr_arr, armci_size_t bytes, ARMCI_Group *group)
 
 int PARMCI_Malloc(void **ptr_arr, armci_size_t bytes)
 {
-  return PARMCI_Malloc_group(ptr_arr, bytes, &ARMCI_Default_Proc_Group);
+  return ARMCI_Malloc_group(ptr_arr, bytes, &ARMCI_Default_Proc_Group);
 }
 
 void* PARMCI_Malloc_local(armci_size_t bytes)
