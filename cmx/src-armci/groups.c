@@ -212,10 +212,11 @@ void ARMCI_Group_size(ARMCI_Group *id, int *size)
 int ARMCI_Absolute_id(ARMCI_Group *id, int group_rank)
 {
   armci_igroup_t *grp;
+  int ierr;
   int world_rank;
   grp = armci_get_igroup_from_group(*id);
-  assert(CMX_SUCCESS == 
-          cmx_group_translate_world(*grp, group_rank, &world_rank));
+  ierr = cmx_group_translate_world(grp->group, group_rank, &world_rank);
+  assert(CMX_SUCCESS == ierr);
   return world_rank;
 }
 
