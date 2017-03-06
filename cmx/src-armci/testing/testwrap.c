@@ -805,6 +805,11 @@ void test_vec_small()
       }
     }
   }
+  /*
+  for (i=0; i< nproc * GIOV_ARR_LEN * lenpergiov; i++) {
+    printf("p[%d] putsrc[%d]: %f\n",me,i,((double*)putsrc)[i]);
+  }
+  */
   /*********************Testing NbPutV*********************************/
   i = 0;
   j = 0;
@@ -842,7 +847,7 @@ void test_vec_small()
     }
   sleep(1);
   ARMCI_Barrier();
-  ARMCI_AllFence();/*every one syncs after put */
+  ARMCI_AllFence();/*every one syncs after get */
   verify_vector_data((double *)putdst[me], nproc, 1, nproc * GIOV_ARR_LEN * lenpergiov);
   if (me == 0) {
     printf("\n\tPuts OK\n");
@@ -2076,7 +2081,6 @@ int main(int argc, char *argv[])
   ARMCI_AllFence();
   ARMCI_Barrier();
 
-#if 0
   if (me == 0) {
     printf("\nTesting aggregate put/get requests\n");
     fflush(stdout);
@@ -2112,7 +2116,6 @@ int main(int argc, char *argv[])
 
   ARMCI_AllFence();
   ARMCI_Barrier();
-#endif
 
 
   ARMCI_Barrier();

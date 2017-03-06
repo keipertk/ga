@@ -55,8 +55,8 @@ cmx_group_t* armci_get_cmx_group(ARMCI_Group id)
 
 /**
  * Creates and associates an ARMCI_Group with an armci_igroup_t.
- *
- * This does *not* initialize the members of the armci_igroup_t.
+ * This only places the new group in the internal group list and
+ * assigns it an external ARMCI_Group id.
  */
 void iarm_create_group_and_igroup(
     ARMCI_Group *id, armci_igroup_t **igroup)
@@ -88,13 +88,26 @@ void iarm_create_group_and_igroup(
 /**
  * Destroy the given armci_igroup_t
  */
-void iarm_igroup_finalize(armci_igroup_t *igroup)
+void iarm_igroup_delete(armci_igroup_t *igroup)
 {
   int status;
   armci_handle_link_t *curr_hdl;
   armci_handle_link_t *next_hdl;
+  armci_igroup_t *previous_group_list_item = NULL;
+  armci_igroup_t *current_group_list_item = NULL;
 
   assert(*igroup);
+
+  /* find the group in the group linked list */
+  current_group_list_item = _iarm_group_list;
+  while (current_group_list_item != igroup) {
+    previous_group_list_item = current_group_list_item;
+    current_group_list_item = previous_group_list_item->next;
+    if (current_group_list_item == NULL) {
+      printf("Error deleting group: group not found\n");
+      printf("or trying to delete world group\n");
+    }
+  }
 
   /* Remove all handles associated with this group */
   curr_hdl = igroup->handle_list;
@@ -103,6 +116,9 @@ void iarm_igroup_finalize(armci_igroup_t *igroup)
     cmx_free(*(curr_hdl->handle));
     curr_hdl = next_hdl;
   }
+  /* Fix up link list of groups before deleting group */
+  previous_group_list_item->next = current_group_list_item->next;
+  free(igroup);
 }
 
 /**
@@ -133,7 +149,7 @@ void armci_group_finalize()
   while (current_group_list_item != NULL) {
     previous_group_list_item = current_group_list_item;
     current_group_list_item = current_group_list_item->next;
-    iarm_igroup_finalize(previous_group_list_item);
+    iarm_igroup_delete(previous_group_list_item);
     free(previous_group_list_item);
   }
   free(_iarm_group_list);
@@ -229,7 +245,7 @@ void ARMCI_Group_free(ARMCI_Group *id)
   grp = armci_get_igroup_from_group(*id);
   cmx_grp = grp->group;
   cmx_group_free(*cmx_grp);
-  iarm_igroup_finalize(grp);
+  iarm_igroup_delete(grp);
   free(grp);
 }
 
@@ -243,7 +259,7 @@ void ARMCI_Group_create_child(
   cmx_group_t *parent;
   old_grp = armci_get_igroup_from_group(*id_parent);
   parent = old_grp->group;
-  cmx_group_create(n, pid_list, *parent, child);
+  cmx_group_create(n, pid_list, *parent, &child);
   iarm_create_group_and_igroup(id_child, &new_grp);
   new_grp->group = child;
   new_grp->id = *id_child;
@@ -260,7 +276,7 @@ void ARMCI_Group_create(int n, int *pid_list, ARMCI_Group *group_out)
   cmx_group_t *parent;
   old_grp = armci_get_igroup_from_group(ARMCI_Default_Proc_Group);
   parent = old_grp->group;
-  cmx_group_create(n, pid_list, *parent, child);
+  cmx_group_create(n, pid_list, *parent, &child);
   iarm_create_group_and_igroup(group_out, &new_grp);
   new_grp->group = child;
   new_grp->id = *group_out;

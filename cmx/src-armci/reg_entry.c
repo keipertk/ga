@@ -546,7 +546,8 @@ reg_entry_insert(int rank, void *buf, int len, cmx_handle_t *cmx_hdl)
 
 /**
  * Removes the reg window entry associated with the given rank and buffer.
- * This does not destroy the cmx_handle_t object, this must be done separately.
+ * This does not destroy the armci_handle_t object, this must be done
+ * separately.
  *
  * @param[in] rank local rank (on group) of processor calling this function
  * @param[in] buf pointer to memory allocation

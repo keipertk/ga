@@ -14,9 +14,10 @@
 #include "reg_entry.h"
 #include "groups.h"
 
-typedef struct {
+typedef struct _nb_t {
+  struct _nb_t *next;
   cmx_request_t request;
-  int active;
+  int id;
 } nb_t;
 
 extern int ARMCI_Default_Proc_Group;
@@ -24,8 +25,8 @@ extern int ARMCI_Default_Proc_Group;
 /**
  * Set up some data structures for non-blocking communication
  */
-static int nb_max_outstanding = COMEX_MAX_NB_OUTSTANDING;
-static nb_t **_nb_list = NULL;
+static int nb_max_outstanding = CMX_MAX_NB_OUTSTANDING;
+static nb_t *_nb_list = NULL;
 
 /**
  * Useful variable for debugging
@@ -163,24 +164,65 @@ int convert_optype(int op){
 }
 
 /**
- * Find first available non-blocking request handle
- *
+ * Create a new non-blocking request and return both an integer handle and the
+ * request data structure to the calling program
  */
 void get_nb_request(armci_hdl_t *handle, nb_t **req)
 {
-  int i;
-  for (i=0; i<nb_max_outstanding; i++) {
-    if (_nb_list[i]->active == 0) break;
+  int maxID = 0; 
+  nb_t *curr_req = _nb_list;
+  nb_t *prev_req = NULL;
+  while (curr_req != NULL) {
+    if (curr_req->id > maxID) maxID = curr_req->id;
+    prev_req = curr_req;
+    curr_req = curr_req->next;
   }
-  if (i<nb_max_outstanding) {
-    *handle = i;
-    *req = _nb_list[i];
+  maxID++;
+  *req = (nb_t*)malloc(sizeof(nb_t));
+  (*req)->id = maxID;
+  (*req)->next = NULL;
+  *handle = maxID;
+  if (prev_req) {
+    prev_req->next = *req;
   } else {
-    *handle = -1;
-    req = NULL;
+    _nb_list = *req;
   }
 }
 
+/**
+ * Delete a non-blocking request and remove it from the link list
+ */
+void delete_nb_request(armci_hdl_t *handle)
+{
+  nb_t *curr_req = _nb_list;
+  nb_t *prev_req = NULL;
+  while (curr_req != NULL) {
+    if (curr_req->id == *handle) break;
+    prev_req = curr_req;
+    curr_req = curr_req->next;
+  }
+  if (curr_req == NULL) {
+    printf("Could not find request handle for delete\n");
+  } else {
+    if (prev_req != NULL) {
+      prev_req->next = curr_req->next;
+    }
+    if (_nb_list == curr_req) _nb_list = curr_req->next;
+    free(curr_req);
+  }
+}
+
+/**
+ * Recover a non-blocking request from the handle
+ */
+nb_t* find_nb_request(armci_hdl_t *handle) {
+  nb_t *curr_req = _nb_list;
+  while (curr_req != NULL) {
+    if (curr_req->id == *handle) return curr_req;
+    curr_req = curr_req->next;
+  }
+  return NULL;
+}
 
 int PARMCI_Acc(int optype, void *scale, void *src, void *dst, int bytes, int proc)
 {
@@ -280,31 +322,61 @@ void PARMCI_Finalize()
   reg_entries_destroy();
   armci_group_finalize();
   cmx_finalize();
-  for (i=0; i<nb_max_outstanding; i++) {
-    free(_nb_list[i]);
-  }
-  free(_nb_list);
 }
 
 
 int PARMCI_Free(void *ptr)
 {
   reg_entry_t *entry; 
-  int rank;
+  int rank, size, ierr, i;
+  void **allgather_ptrs = NULL;
+  void *buf;
+  MPI_Comm comm;
   cmx_group_rank(CMX_GROUP_WORLD, &rank);
+  cmx_group_size(CMX_GROUP_WORLD, &size);
+  cmx_group_comm(CMX_GROUP_WORLD, &comm);
   entry = reg_entry_find(rank,ptr,0);
-  return cmx_free(*(entry->hdl));
+  buf = entry->buf;
+  ierr = cmx_free(*(entry->hdl));
+  /* Need to clean up all entries corresponding to this allocation
+   * in reg_entry lists. Allocate receive buffer for exchange of pointers */
+  allgather_ptrs = (void **)malloc(sizeof(void *) * size);
+  assert(allgather_ptrs);
+  /* exchange pointers */
+  MPI_Allgather(&buf, sizeof(void*), MPI_BYTE,
+                allgather_ptrs, sizeof(void*), MPI_BYTE, comm);
+  for (i=0; i<size; i++) {
+    reg_entry_delete(i,allgather_ptrs[i]);
+  }
+  return ierr;
 }
 
 
 int ARMCI_Free_group(void *ptr, ARMCI_Group *group)
 {
-  cmx_group_t *grp = armci_get_cmx_group(*group);
   reg_entry_t *entry; 
-  int rank;
+  int rank, size, ierr, i;
+  void **allgather_ptrs = NULL;
+  void *buf;
+  MPI_Comm comm;
+  cmx_group_t *grp = armci_get_cmx_group(*group);
   cmx_group_rank(*grp, &rank);
+  cmx_group_size(*grp, &size);
+  cmx_group_comm(*grp, &comm);
   entry = reg_entry_find(rank,ptr,0);
-  return cmx_free(*(entry->hdl));
+  buf = entry->buf;
+  ierr = cmx_free(*(entry->hdl));
+  /* Need to clean up all entries corresponding to this allocation
+   * in reg_entry lists. Allocate receive buffer for exchange of pointers */
+  allgather_ptrs = (void **)malloc(sizeof(void *) * size);
+  assert(allgather_ptrs);
+  /* exchange pointers */
+  MPI_Allgather(&buf, sizeof(void*), MPI_BYTE,
+                allgather_ptrs, sizeof(void*), MPI_BYTE, comm);
+  for (i=0; i<size; i++) {
+    reg_entry_delete(i,allgather_ptrs[i]);
+  }
+  return ierr;
 }
 
 
@@ -415,14 +487,6 @@ int PARMCI_Init()
   cmx_group_size(CMX_GROUP_WORLD,&size);
   cmx_group_rank(CMX_GROUP_WORLD,&_armci_me);
   reg_entry_init(size);
-
-  /* initialize non-blocking handles */
-  _nb_list = (nb_t**)malloc(sizeof(nb_t*)*nb_max_outstanding);
-  for (i=0; i<nb_max_outstanding; i++) {
-    _nb_list[i] = (nb_t*)malloc(sizeof(nb_t));
-    _nb_list[i]->active = 0;
-  }
-
   return rc;
 }
 
@@ -435,14 +499,6 @@ int PARMCI_Init_args(int *argc, char ***argv)
   cmx_group_size(CMX_GROUP_WORLD,&size);
   cmx_group_rank(CMX_GROUP_WORLD,&_armci_me);
   reg_entry_init(size);
-
-  /* initialize non-blocking handles */
-  _nb_list = (nb_t**)malloc(sizeof(nb_t*)*nb_max_outstanding);
-  for (i=0; i<nb_max_outstanding; i++) {
-    _nb_list[i] = (nb_t*)malloc(sizeof(nb_t));
-    _nb_list[i]->active = 0;
-  }
-
   return rc;
 }
 
@@ -601,6 +657,9 @@ int PARMCI_NbAcc(int optype, void *scale, void *src, void *dst, int bytes, int p
   void *buf;
   MPI_Aint offset;
   nb_t *req;
+  if (nb_handle == NULL) {
+    return PARMCI_Acc(optype, scale, src, dst, bytes, proc);
+  }
   entry = reg_entry_find(proc,dst,bytes);
   buf = entry->buf;
   optype = convert_optype(optype);
@@ -608,7 +667,6 @@ int PARMCI_NbAcc(int optype, void *scale, void *src, void *dst, int bytes, int p
   get_nb_request(nb_handle, &req);
   iret = cmx_nbacc(optype, scale, src, offset, bytes, proc, *(entry->hdl),
       &(req->request));
-  req->active = 1;
   return iret;
 }
 
@@ -621,6 +679,10 @@ int PARMCI_NbAccS(int optype, void *scale, void *src_ptr, int *src_stride_arr, v
   void *buf;
   MPI_Aint offset;
   nb_t *req;
+  if (nb_handle == NULL) {
+    return PARMCI_AccS(optype, scale, src_ptr, src_stride_arr, dst_ptr,
+        dst_stride_arr, count, stride_levels, proc);
+  }
   entry = reg_entry_find(proc,dst_ptr,0);
   buf = entry->buf;
   optype = convert_optype(optype);
@@ -638,7 +700,6 @@ int PARMCI_NbAccS(int optype, void *scale, void *src_ptr, int *src_stride_arr, v
         dst_stride_arr, count, stride_levels, proc,
         *(entry->hdl), &(req->request));
   }
-  req->active = 1;
   return iret;
 }
 
@@ -649,7 +710,11 @@ int PARMCI_NbAccV(int op, void *scale, armci_giov_t *darr, int len, int proc, ar
   reg_entry_t *entry; 
   void *buf;
   nb_t *req;
-  cmx_giov_t *adarr = malloc(sizeof(cmx_giov_t) * len);
+  cmx_giov_t *adarr;
+  if (nb_handle == NULL) {
+    return PARMCI_AccV(op, scale, darr, len, proc);
+  }
+  adarr = malloc(sizeof(cmx_giov_t) * len);
   /* find location of buffer on remote processor. Start by finding a buffer
    * location on the remote array */
   buf = (darr[0].dst_ptr_array)[0];
@@ -659,7 +724,6 @@ int PARMCI_NbAccV(int op, void *scale, armci_giov_t *darr, int len, int proc, ar
   op = convert_optype(op);
   get_nb_request(nb_handle, &req);
   rc = cmx_nbaccv(op, scale, adarr, len, proc, *(entry->hdl), &(req->request));
-  req->active = 1;
   free_giov(adarr, len);
   return rc;
 }
@@ -671,12 +735,14 @@ int PARMCI_NbGet(void *src, void *dst, int bytes, int proc, armci_hdl_t *nb_hand
   void *buf;
   MPI_Aint offset;
   nb_t *req;
+  if (nb_handle == NULL) {
+    return PARMCI_Get(src, dst, bytes, proc);
+  }
   entry = reg_entry_find(proc,src,bytes);
   buf = entry->buf;
   offset = (MPI_Aint)src-(MPI_Aint)buf;
   get_nb_request(nb_handle, &req);
   iret = cmx_nbget(dst, offset, bytes, proc, *(entry->hdl), &(req->request));
-  req->active = 1;
   return iret;
 }
 
@@ -688,6 +754,10 @@ int PARMCI_NbGetS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_st
   void *buf;
   MPI_Aint offset;
   nb_t *req;
+  if (nb_handle == NULL) {
+    return PARMCI_GetS(src_ptr, src_stride_arr, dst_ptr, dst_stride_arr,
+        count, stride_levels, proc);
+  }
   entry = reg_entry_find(proc,src_ptr,0);
   buf = entry->buf;
   offset = (MPI_Aint)src_ptr-(MPI_Aint)buf;
@@ -703,7 +773,6 @@ int PARMCI_NbGetS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_st
     iret = cmx_nbgets(dst_ptr, dst_stride_arr, offset, src_stride_arr,
         count, stride_levels, proc, *(entry->hdl), &(req->request));
   }
-  req->active = 1;
   return iret;
 }
 
@@ -714,7 +783,11 @@ int PARMCI_NbGetV(armci_giov_t *darr, int len, int proc, armci_hdl_t *nb_handle)
   reg_entry_t *entry; 
   void *buf;
   nb_t *req;
-  cmx_giov_t *adarr = malloc(sizeof(cmx_giov_t) * len);
+  cmx_giov_t *adarr;
+  if (nb_handle == NULL) {
+    return PARMCI_GetV(darr, len, proc);
+  }
+  adarr = malloc(sizeof(cmx_giov_t) * len);
   /* find location of buffer on remote processor. Start by finding a buffer
    * location on the remote array */
   buf = (darr[0].src_ptr_array)[0];
@@ -723,7 +796,6 @@ int PARMCI_NbGetV(armci_giov_t *darr, int len, int proc, armci_hdl_t *nb_handle)
   convert_giov(darr, adarr, len, buf, 0);
   get_nb_request(nb_handle, &req);
   rc = cmx_nbgetv(adarr, len, proc, *(entry->hdl), &(req->request));
-  req->active = 1;
   free_giov(adarr, len);
   return rc;
 }
@@ -736,12 +808,14 @@ int PARMCI_NbPut(void *src, void *dst, int bytes, int proc, armci_hdl_t *nb_hand
   void *buf;
   MPI_Aint offset;
   nb_t *req;
+  if (nb_handle == NULL) {
+    return PARMCI_Put(src, dst, bytes, proc);
+  }
   entry = reg_entry_find(proc,dst,bytes);
   buf = entry->buf;
   offset = (MPI_Aint)dst-(MPI_Aint)buf;
   get_nb_request(nb_handle, &req);
   iret = cmx_nbput(src, offset, bytes, proc, *(entry->hdl), &(req->request));
-  req->active = 1;
   return iret;
 }
 
@@ -753,6 +827,10 @@ int PARMCI_NbPutS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_st
   void *buf;
   MPI_Aint offset;
   nb_t *req;
+  if (nb_handle == NULL) {
+    return PARMCI_PutS(src_ptr, src_stride_arr, dst_ptr, dst_stride_arr,
+        count, stride_levels, proc);
+  }
   entry = reg_entry_find(proc,dst_ptr,0);
   buf = entry->buf;
   offset = (MPI_Aint)dst_ptr-(MPI_Aint)buf;
@@ -768,7 +846,6 @@ int PARMCI_NbPutS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_st
     iret = cmx_nbputs(src_ptr, src_stride_arr, offset, dst_stride_arr,
         count, stride_levels, proc, *(entry->hdl), &(req->request));
   }
-  req->active = 1;
   return iret;
 }
 
@@ -779,7 +856,11 @@ int PARMCI_NbPutV(armci_giov_t *darr, int len, int proc, armci_hdl_t *nb_handle)
   reg_entry_t *entry; 
   void *buf;
   nb_t *req;
-  cmx_giov_t *adarr = malloc(sizeof(cmx_giov_t) * len);
+  cmx_giov_t *adarr;
+  if (nb_handle == NULL) {
+    return PARMCI_PutV(darr, len, proc);
+  }
+  adarr = malloc(sizeof(cmx_giov_t) * len);
   /* find location of buffer on remote processor. Start by finding a buffer
    * location on the remote array */
   buf = (darr[0].dst_ptr_array)[0];
@@ -788,7 +869,6 @@ int PARMCI_NbPutV(armci_giov_t *darr, int len, int proc, armci_hdl_t *nb_handle)
   convert_giov(darr, adarr, len, buf, 1);
   get_nb_request(nb_handle, &req);
   rc = cmx_nbputv(adarr, len, proc, *(entry->hdl), &(req->request));
-  req->active = 1;
   free_giov(adarr, len);
   return rc;
 }
@@ -933,7 +1013,8 @@ int PARMCI_Rmw(int op, void *ploc, void *prem, int extra, int proc)
 int PARMCI_Test(armci_hdl_t *nb_handle)
 {
   int status, ierr;
-  nb_t *req = _nb_list[*nb_handle];
+  nb_t *req = find_nb_request(nb_handle);
+  if (req == NULL) return CMX_SUCCESS;
   ierr = cmx_test(&(req->request), &status);
   assert(CMX_SUCCESS == ierr);
   return status;
@@ -949,9 +1030,10 @@ void PARMCI_Unlock(int mutex, int proc)
 int PARMCI_Wait(armci_hdl_t *nb_handle)
 {
   int ret;
-  nb_t *req = _nb_list[*nb_handle];
+  nb_t *req = find_nb_request(nb_handle);
   ret = cmx_wait(&(req->request));
-  req->active = 0;
+  delete_nb_request(nb_handle);
+  return CMX_SUCCESS;
 }
 
 
