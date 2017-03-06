@@ -12,8 +12,8 @@
 /* Configuration options */
 #define DEBUG 0
 
-#define USE_MPI_REQUESTS
 /*
+#define USE_MPI_REQUESTS
 #define USE_MPI_FLUSH_LOCAL
 #define USE_MPI_WIN_ALLOC
 */
@@ -1477,7 +1477,6 @@ int cmx_fence_proc(int proc, cmx_group_t group)
       curr_win = curr_win->next;
     }
   }
-  return CMX_SUCCESS;
 }
 
 
@@ -2801,20 +2800,15 @@ int cmx_free(cmx_handle_t handle)
   cmx_igroup_t *group = handle.group;
   MPI_Comm comm = MPI_COMM_NULL;
   MPI_Win window;
-  int comm_rank, world_rank;
+  int comm_rank;
   int comm_size;
   int i;
-
-  /* preconditions */
-  assert(ptr != NULL);
 
   comm = handle.comm;
   assert(comm != MPI_COMM_NULL);
   MPI_Comm_rank(comm, &comm_rank);
   MPI_Comm_size(comm, &comm_size);
 
-  /* Find the window that this buffer belongs to */
-  cmx_group_translate_world(group,comm_rank,&world_rank);
   window = handle.win;
 
   /* Remove window from group list */
