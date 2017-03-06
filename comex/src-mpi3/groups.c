@@ -194,6 +194,8 @@ int comex_group_free(comex_group_t id)
     /* remove the group from the linked list */
     if (previous_group_list_item != NULL) {
         previous_group_list_item->next = current_group_list_item->next;
+    } else {
+      group_list = current_group_list_item->next;
     }
     /* free the group */
     comex_igroup_finalize(current_group_list_item);
