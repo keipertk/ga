@@ -48,7 +48,7 @@ armci_igroup_t* armci_get_igroup_from_group(ARMCI_Group id)
  * @param id ARMCI Group identifier
  * @return CMX group
  */
-cmx_group_t* armci_get_cmx_group(ARMCI_Group id)
+cmx_group_t armci_get_cmx_group(ARMCI_Group id)
 {
   return (armci_get_igroup_from_group(id)->group);
 }
@@ -133,7 +133,7 @@ void armci_group_init()
   _iarm_group_list->id = 0;
   _iarm_group_list->next = NULL;
   _iarm_group_list->handle_list = NULL;
-  _iarm_group_list->group = &CMX_GROUP_WORLD;
+  _iarm_group_list->group = CMX_GROUP_WORLD;
 }
 
 /**
@@ -197,7 +197,7 @@ int ARMCI_Group_rank(ARMCI_Group *id, int *rank)
 {
   armci_igroup_t *grp;
   grp = armci_get_igroup_from_group(*id);
-  return cmx_group_rank(*(grp->group), rank);
+  return cmx_group_rank(grp->group, rank);
 }
 
 
@@ -205,7 +205,7 @@ void ARMCI_Group_size(ARMCI_Group *id, int *size)
 {
   armci_igroup_t *grp;
   grp = armci_get_igroup_from_group(*id);
-  cmx_group_size(*(grp->group), size);
+  cmx_group_size(grp->group, size);
 }
 
 
@@ -241,25 +241,24 @@ void ARMCI_Group_get_world(ARMCI_Group *group_out)
 void ARMCI_Group_free(ARMCI_Group *id)
 {
   armci_igroup_t *grp;
-  cmx_group_t *cmx_grp;
+  cmx_group_t cmx_grp;
   grp = armci_get_igroup_from_group(*id);
   cmx_grp = grp->group;
-  cmx_group_free(*cmx_grp);
+  cmx_group_free(cmx_grp);
   iarm_igroup_delete(grp);
   free(grp);
 }
-
 
 void ARMCI_Group_create_child(
         int n, int *pid_list, ARMCI_Group *id_child, ARMCI_Group *id_parent)
 {
   armci_igroup_t *old_grp;
   armci_igroup_t *new_grp;
-  cmx_group_t *child;
-  cmx_group_t *parent;
+  cmx_group_t child;
+  cmx_group_t parent;
   old_grp = armci_get_igroup_from_group(*id_parent);
   parent = old_grp->group;
-  cmx_group_create(n, pid_list, *parent, &child);
+  cmx_group_create(n, pid_list, parent, &child);
   iarm_create_group_and_igroup(id_child, &new_grp);
   new_grp->group = child;
   new_grp->id = *id_child;
@@ -272,11 +271,11 @@ void ARMCI_Group_create(int n, int *pid_list, ARMCI_Group *group_out)
 {
   armci_igroup_t *old_grp;
   armci_igroup_t *new_grp;
-  cmx_group_t *child;
-  cmx_group_t *parent;
+  cmx_group_t child;
+  cmx_group_t parent;
   old_grp = armci_get_igroup_from_group(ARMCI_Default_Proc_Group);
   parent = old_grp->group;
-  cmx_group_create(n, pid_list, *parent, &child);
+  cmx_group_create(n, pid_list, parent, &child);
   iarm_create_group_and_igroup(group_out, &new_grp);
   new_grp->group = child;
   new_grp->id = *group_out;

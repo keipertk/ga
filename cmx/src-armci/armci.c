@@ -25,7 +25,6 @@ extern int ARMCI_Default_Proc_Group;
 /**
  * Set up some data structures for non-blocking communication
  */
-static int nb_max_outstanding = CMX_MAX_NB_OUTSTANDING;
 static nb_t *_nb_list = NULL;
 
 /**
@@ -291,8 +290,8 @@ void PARMCI_AllFence()
 void PARMCI_Barrier()
 {
   int ierr;
-  cmx_group_t *grp = armci_get_cmx_group(ARMCI_Default_Proc_Group);
-  ierr = cmx_barrier(*grp);
+  cmx_group_t grp = armci_get_cmx_group(ARMCI_Default_Proc_Group);
+  ierr = cmx_barrier(grp);
   assert(CMX_SUCCESS == ierr);
 }
 
@@ -359,10 +358,10 @@ int ARMCI_Free_group(void *ptr, ARMCI_Group *group)
   void **allgather_ptrs = NULL;
   void *buf;
   MPI_Comm comm;
-  cmx_group_t *grp = armci_get_cmx_group(*group);
-  cmx_group_rank(*grp, &rank);
-  cmx_group_size(*grp, &size);
-  cmx_group_comm(*grp, &comm);
+  cmx_group_t grp = armci_get_cmx_group(*group);
+  cmx_group_rank(grp, &rank);
+  cmx_group_size(grp, &size);
+  cmx_group_comm(grp, &comm);
   entry = reg_entry_find(rank,ptr,0);
   buf = entry->buf;
   ierr = cmx_free(*(entry->hdl));
@@ -526,7 +525,7 @@ int ARMCI_Malloc_group(void **ptr_arr, armci_size_t bytes, ARMCI_Group *group)
   int comm_rank = -1;
   int comm_size = -1;
   int tsize;
-  cmx_group_t *cmx_grp;
+  cmx_group_t cmx_grp;
 
   igroup = armci_get_igroup_from_group(*group);
   cmx_grp = igroup->group;
@@ -535,7 +534,7 @@ int ARMCI_Malloc_group(void **ptr_arr, armci_size_t bytes, ARMCI_Group *group)
   /* ptr_array should already have been allocated externally */
   CMX_ASSERT(ptr_arr);
 
-  cmx_group_comm(*cmx_grp, &comm);
+  cmx_group_comm(cmx_grp, &comm);
   assert(comm != MPI_COMM_NULL);
   MPI_Comm_rank(comm, &comm_rank);
   MPI_Comm_size(comm, &comm_size);
@@ -546,7 +545,7 @@ int ARMCI_Malloc_group(void **ptr_arr, armci_size_t bytes, ARMCI_Group *group)
   reg_entries[comm_rank].rank = comm_rank;
   reg_entries[comm_rank].len = comm_size;
 
-  ret = cmx_malloc(handle, bytes, *cmx_grp);
+  ret = cmx_malloc(handle, bytes, cmx_grp);
   cmx_access(*handle,&buf);
   reg_entries[comm_rank].buf = buf;
   reg_entries[comm_rank].rank = comm_rank;
@@ -560,7 +559,7 @@ int ARMCI_Malloc_group(void **ptr_arr, armci_size_t bytes, ARMCI_Group *group)
     reg_entry_t *node;
     int world_rank;
     int ierr;
-    ierr = cmx_group_translate_world(*cmx_grp,i,&world_rank);
+    ierr = cmx_group_translate_world(cmx_grp,i,&world_rank);
     assert(CMX_SUCCESS == ierr);
     if (i != comm_rank) {
       reg_entries[i].hdl = handle;
@@ -569,6 +568,7 @@ int ARMCI_Malloc_group(void **ptr_arr, armci_size_t bytes, ARMCI_Group *group)
         reg_entries[i].hdl);
     ptr_arr[i] = reg_entries[i].buf;
   }
+  free(reg_entries);
 }
 
 int PARMCI_Malloc(void **ptr_arr, armci_size_t bytes)

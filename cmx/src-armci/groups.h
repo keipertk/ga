@@ -23,12 +23,12 @@ typedef struct _armci_group_link {
   struct _armci_group_link *next;
   ARMCI_Group id;
   armci_handle_link_t *handle_list;
-  cmx_group_t *group;
+  cmx_group_t group;
 } armci_igroup_t;
 
 extern armci_igroup_t* iarm_get_igroup_from_group(ARMCI_Group id);
 extern void armci_group_init();
 extern void armci_group_finalize();
-extern cmx_group_t* armci_get_cmx_group(ARMCI_Group id);
+extern cmx_group_t armci_get_cmx_group(ARMCI_Group id);
 extern armci_igroup_t* armci_get_igroup_from_group(ARMCI_Group id);
 #endif

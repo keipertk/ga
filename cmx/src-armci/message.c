@@ -43,11 +43,11 @@ static MPI_Comm wc()
 MPI_Comm armci_group_comm(ARMCI_Group *group)
 {
     MPI_Comm comm;
-    cmx_group_t *grp = armci_get_cmx_group(*group);
+    cmx_group_t grp = armci_get_cmx_group(*group);
     /*
     assert(CMX_SUCCESS == cmx_group_comm(*group, &comm));
     */
-    cmx_group_comm(*grp, &comm);
+    cmx_group_comm(grp, &comm);
     return comm;
 }
 
@@ -143,11 +143,11 @@ static void do_abs(void *x, int n, int type)
 static MPI_Comm get_comm(ARMCI_Group *group)
 {
     MPI_Comm comm;
-    cmx_group_t *grp = armci_get_cmx_group(*group);
+    cmx_group_t grp = armci_get_cmx_group(*group);
     /*
     assert(CMX_SUCCESS == cmx_group_comm(*group, &comm));
     */
-    cmx_group_comm(*grp, &comm);
+    cmx_group_comm(grp, &comm);
     return comm;
 }
 
@@ -206,8 +206,8 @@ static void do_gop(void *x, int n, char* op, int type, ARMCI_Group group)
     assert(result);
 
     if (ARMCI_GROUP_SELF != group) {
-        cmx_group_t *grp = armci_get_cmx_group(group);
-        cmx_barrier(*grp);
+        cmx_group_t grp = armci_get_cmx_group(group);
+        cmx_barrier(grp);
     }
     rc = MPI_Allreduce(x, result, n, mpi_type, mpi_op, comm); 
     assert(rc == MPI_SUCCESS);
@@ -220,8 +220,8 @@ static void do_gop(void *x, int n, char* op, int type, ARMCI_Group group)
 void armci_msg_bcast(void *buf, int len, int root)
 {
     assert(buf != NULL);
-    cmx_group_t *grp = armci_get_cmx_group(ARMCI_Default_Proc_Group);
-    cmx_barrier(*grp);
+    cmx_group_t grp = armci_get_cmx_group(ARMCI_Default_Proc_Group);
+    cmx_barrier(grp);
     MPI_Bcast(buf, len, MPI_BYTE, root, get_default_comm());
 }
 
@@ -291,9 +291,9 @@ void armci_msg_sel_scope(int scope, void *x, int n, char* op, int type, int cont
         in.val = *((C_TYPE*)x);                                 \
         in.rank = get_default_rank();                           \
         if (SCOPE_NODE != scope) {                              \
-            cmx_group_t *grp                                    \
+            cmx_group_t grp                                     \
                = armci_get_cmx_group(ARMCI_Default_Proc_Group); \
-            cmx_barrier(*grp);                                  \
+            cmx_barrier(grp);                                   \
         }                                                       \
         MPI_Allreduce(&in, &out, 1, MPI_TYPE, mpi_op, comm);    \
         armci_msg_bcast(x, n, out.rank);                        \
@@ -512,8 +512,8 @@ void armci_exchange_address(void *ptr_ar[], int n)
 
 void parmci_msg_barrier()
 {
-    cmx_group_t *grp = armci_get_cmx_group(ARMCI_Default_Proc_Group); 
-    cmx_barrier(*grp);
+    cmx_group_t grp = armci_get_cmx_group(ARMCI_Default_Proc_Group); 
+    cmx_barrier(grp);
     MPI_Barrier(get_default_comm());
 }
 
@@ -694,8 +694,8 @@ void armci_exchange_address_grp(void *ptr_arr[], int n, ARMCI_Group *group)
 
 void parmci_msg_group_barrier(ARMCI_Group *group)
 {
-    cmx_group_t *grp = armci_get_cmx_group(*group); 
-    cmx_barrier(*grp);
+    cmx_group_t grp = armci_get_cmx_group(*group); 
+    cmx_barrier(grp);
     MPI_Barrier(get_comm(group));
 }
 
@@ -706,7 +706,7 @@ void armci_msg_group_bcast_scope(int scope, void *buf, int len, int root, ARMCI_
         MPI_Bcast(buf, len, MPI_BYTE, root, MPI_COMM_SELF);
     }
     else {
-        cmx_group_t *grp = armci_get_cmx_group(*group); 
+        cmx_group_t grp = armci_get_cmx_group(*group); 
         int root_sub;
         int err;
         /* NOTE: this function is passed a root which has been translated back
@@ -721,7 +721,7 @@ void armci_msg_group_bcast_scope(int scope, void *buf, int len, int root, ARMCI_
         assert(MPI_SUCCESS == err);
         err = MPI_Group_translate_ranks(group_world, 1, &root,
                 group_sub, &root_sub);
-        cmx_barrier(*grp);
+        cmx_barrier(grp);
         err = MPI_Bcast(buf, len, MPI_BYTE, root_sub, get_comm(group));
         assert(MPI_SUCCESS == err);
     }
