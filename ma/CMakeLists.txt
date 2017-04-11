@@ -40,6 +40,10 @@ include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}
 # MA header installation
 # -------------------------------------------------------------
 
+if (ENABLE_FORTRAN)
+  set(FORTRAN_HEADERS maf2c.fh mafdecls.fh)
+endif()
+
 set(MA_HEADERS
   ma.h
 #  error.h
@@ -50,6 +54,7 @@ set(MA_HEADERS
   scope.h
   string-util.h
   table.h
+  ${FORTRAN_HEADERS}
 )
 
 install (FILES
