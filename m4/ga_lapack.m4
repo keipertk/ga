@@ -4,7 +4,11 @@
 AC_DEFUN([GA_F77_LAPACK_TEST], [AC_LANG_CONFTEST([AC_LANG_PROGRAM([],
 [[      implicit none
       external DGETRS
-      CALL DGETRS ()]])])
+      external DSYGV
+      external LSAME
+      CALL DGETRS ()
+      CALL DSYGV ()
+      CALL LSAME ()]])])
 ])
 
 
@@ -15,12 +19,16 @@ AC_DEFUN([GA_C_LAPACK_TEST], [AC_LANG_CONFTEST([AC_LANG_PROGRAM(
 [#ifdef __cplusplus
 extern "C" {
 #endif
-char dgetrs ();
+char $dgetrs ();
+char $dsygv ();
+char $lsame ();
 #ifdef __cplusplus
 }
 #endif
 ],
-[[char result = dgetrs ();
+[[char result = $dgetrs ();
+  char result = $dsygv ();
+  char result = $lsame ();
 ]])])
 ])
 
@@ -44,6 +52,8 @@ GA_ARG_PARSE([with_lapack], [LAPACK_LIBS], [LAPACK_LDFLAGS], [LAPACK_CPPFLAGS])
 
 # Get fortran linker name of LAPACK function to check for.
 AC_F77_FUNC(dgetrs)
+AC_F77_FUNC(dsygv)
+AC_F77_FUNC(lsame)
 
 ga_save_LIBS="$LIBS"
 ga_save_LDFLAGS="$LDFLAGS"
@@ -78,9 +88,19 @@ AS_IF([test $ga_lapack_ok = no],
 # Generic LAPACK library?
 for lib in lapack lapack_rs6k; do
 AS_IF([test $ga_lapack_ok = no],
-    [ga_save_LIBS="$LIBS"; LIBS="$BLAS_LIBS $LIBS"
-     AC_CHECK_LIB([$lib], [$dgetrs],
-        [ga_lapack_ok=yes; LAPACK_LIBS="-l$lib"], [], [$FLIBS])
+    [ga_save_LIBS="$LIBS"; LIBS="-l$lib $BLAS_LIBS $LIBS"; LAPACK_LIBS="-l$lib" 
+     AS_IF([test "x$enable_f77" = xno],
+        [AC_MSG_CHECKING([for C LAPACK using -l$lib])
+         AC_LANG_PUSH([C])
+         GA_C_LAPACK_TEST()
+         AC_LINK_IFELSE([], [ga_lapack_ok=yes], [LAPACK_LIBS=])
+         AC_LANG_POP([C])],
+        [AC_MSG_CHECKING([for Fortran 77 LAPACK using -l$lib])
+         AC_LANG_PUSH([Fortran 77])
+         GA_F77_LAPACK_TEST()
+         AC_LINK_IFELSE([], [ga_lapack_ok=yes], [LAPACK_LIBS=])
+         AC_LANG_POP([Fortran 77])])
+     AC_MSG_RESULT([$ga_lapack_ok])
      LIBS="$ga_save_LIBS"])
 done
 
@@ -98,6 +118,7 @@ AS_IF([test $ga_lapack_ok = yes],
     [AC_MSG_WARN([LAPACK library not found, using internal LAPACK])
      have_lapack=0
      $2])
+AC_SUBST([have_lapack])
 AC_DEFINE_UNQUOTED([HAVE_LAPACK], [$have_lapack],
     [Define to 1 if using external LAPACK library])
 AM_CONDITIONAL([HAVE_LAPACK], [test $ga_lapack_ok = yes])

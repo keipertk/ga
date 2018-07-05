@@ -33,6 +33,7 @@ Modified 3/2004 By Doug Baxter to increase robustness.
 #   include <math.h>
 #endif
 #include "abstract_ops.h"
+#include "ga_iterator.h"
 #include "ga-papi.h"
 #include "ga-wapi.h"
 
@@ -722,10 +723,11 @@ static void gai_oper_elem(Integer g_a, Integer *lo, Integer *hi, void *scalar, I
 
   Integer ndim, dims[MAXDIM], type;
   Integer loA[MAXDIM], hiA[MAXDIM], ld[MAXDIM];
-  void /* *temp,*/ *data_ptr;
+  char *data_ptr;
   Integer me= pnga_nodeid();
   Integer num_blocks;
   int local_sync_begin,local_sync_end;
+  _iterator_hdl hdl;
 
   local_sync_begin = _ga_sync_begin; local_sync_end = _ga_sync_end;
   _ga_sync_begin = 1; _ga_sync_end=1; /*remove any previous masking*/
@@ -733,14 +735,77 @@ static void gai_oper_elem(Integer g_a, Integer *lo, Integer *hi, void *scalar, I
 
   pnga_check_handle(g_a, "gai_oper_elem");
 
-  GA_PUSH_NAME("gai_oper_elem");
 
   pnga_inquire(g_a,  &type, &ndim, dims);
   num_blocks = pnga_total_blocks(g_a);
 
+  pnga_local_iterator_init(g_a, &hdl);
+  while (pnga_local_iterator_next(&hdl,loA,hiA,&data_ptr,ld)) {
+    Integer offset, i, j, jtmp, chk;
+    Integer loS[MAXDIM];
+    Integer nproc = pnga_nnodes();
+
+    /* loA is changed by pnga_patch_intersect, so
+       save a copy */
+    for (j=0; j<ndim; j++) {
+      loS[j] = loA[j];
+    }
+    /*  determine subset of my local patch to access  */
+    /*  Output is in loA and hiA */
+    if(pnga_patch_intersect(lo, hi, loA, hiA, ndim)){
+      /* Check for partial overlap */
+      chk = 1;
+      for (j=0; j<ndim; j++) {
+        if (loS[j] < loA[j]) {
+          chk=0;
+          break;
+        }
+      }
+      if (!chk) {
+        /* Evaluate additional offset for pointer */
+        offset = 0;
+        jtmp = 1;
+        for (j=0; j<ndim-1; j++) {
+          offset += (loA[j]-loS[j])*jtmp;
+          jtmp *= ld[j];
+        }
+        offset += (loA[ndim-1]-loS[ndim-1])*jtmp;
+        switch (type){
+          case C_INT:
+            data_ptr = (void*)((int*)data_ptr + offset);
+            break;
+          case C_DCPL:
+            data_ptr = (void*)((double*)data_ptr + 2*offset);
+            break;
+          case C_SCPL:
+            data_ptr = (void*)((float*)data_ptr + 2*offset);
+            break;
+          case C_DBL:
+            data_ptr = (void*)((double*)data_ptr + offset);
+            break;
+          case C_FLOAT:
+            data_ptr = (void*)((float*)data_ptr + offset);
+            break;
+          case C_LONG:
+            data_ptr = (void*)((long*)data_ptr + offset);
+            break;
+          default: pnga_error(" wrong data type ",type);
+        }
+      }
+      /* perform operation on all elements in local patch */
+      ngai_do_oper_elem(type, ndim, loA, hiA, ld, data_ptr, scalar, op);
+    }
+  }
+#if 0
   if (num_blocks < 0) {
     /* get limits of VISIBLE patch */
     pnga_distribution(g_a, me, loA, hiA);
+
+    /* loA is changed by pnga_patch_intersect, so
+       save a copy */
+    for (j=0; j<ndim; j++) {
+      loS[j] = loA[j];
+    }
 
     /*  determine subset of my local patch to access  */
     /*  Output is in loA and hiA */
@@ -917,7 +982,7 @@ static void gai_oper_elem(Integer g_a, Integer *lo, Integer *hi, void *scalar, I
       }
     }
   }
-  GA_POP_NAME;
+#endif
   if(local_sync_end)pnga_sync();
 }
 
@@ -1769,7 +1834,7 @@ int op; /* operation to be perform between g_a and g_b */
   Integer loA[MAXDIM], hiA[MAXDIM], ldA[MAXDIM];
   Integer loB[MAXDIM], hiB[MAXDIM], ldB[MAXDIM];
   Integer loC[MAXDIM], hiC[MAXDIM], ldC[MAXDIM];
-  void *A_ptr, *B_ptr, *C_ptr;
+  char *A_ptr, *B_ptr, *C_ptr;
   Integer idx, n1dim;
   Integer atotal, btotal;
   Integer g_A = g_a, g_B = g_b;
@@ -1782,7 +1847,6 @@ int op; /* operation to be perform between g_a and g_b */
   _ga_sync_begin = 1; _ga_sync_end=1; /*remove any previous masking*/
   if(local_sync_begin)pnga_sync();
   pnga_check_handle(g_a, "gai_elem2_patch_");
-  GA_PUSH_NAME("ngai_elem2_patch_");
 
   pnga_inquire(g_a, &atype, &andim, adims);
   pnga_inquire(g_b, &btype, &bndim, bdims);
@@ -1823,7 +1887,8 @@ int op; /* operation to be perform between g_a and g_b */
     if(pnga_comp_patch(andim, loA, hiA, cndim, loC, hiC) &&
         pnga_comp_patch(andim, alo, ahi, cndim, clo, chi)) compatible = 1;
     else compatible = 0;
-    pnga_gop(pnga_type_f2c(MT_F_INT), &compatible, 1, "*");
+    /* pnga_gop(pnga_type_f2c(MT_F_INT), &compatible, 1, "*"); */
+    pnga_gop(pnga_type_f2c(MT_F_INT), &compatible, 1, "&&");
     if(!compatible) {
       /* either patches or distributions do not match:
        *        - create a temp array that matches distribution of g_c
@@ -1849,7 +1914,8 @@ int op; /* operation to be perform between g_a and g_b */
     if(pnga_comp_patch(bndim, loB, hiB, cndim, loC, hiC) &&
         pnga_comp_patch(bndim, blo, bhi, cndim, clo, chi)) compatible = 1;
     else compatible = 0;
-    pnga_gop(pnga_type_f2c(MT_F_INT), &compatible, 1, "*");
+    /* pnga_gop(pnga_type_f2c(MT_F_INT), &compatible, 1, "*"); */
+    pnga_gop(pnga_type_f2c(MT_F_INT), &compatible, 1, "&&");
     if(!compatible) {
       /* either patches or distributions do not match:
        *        - create a temp array that matches distribution of g_c
@@ -1887,6 +1953,8 @@ int op; /* operation to be perform between g_a and g_b */
 
     }
   } else {
+    _iterator_hdl hdl_a, hdl_b, hdl_c;
+    int lod[MAXDIM];
     /* create copies of arrays A and B that are identically distributed
        as C*/
     if (!pnga_duplicate(g_c, &g_A, tempname))
@@ -1903,6 +1971,73 @@ int op; /* operation to be perform between g_a and g_b */
 
     /* C is normally distributed so just add copies together for regular
        arrays */
+#if 1
+    pnga_local_iterator_init(g_A, &hdl_a);
+    pnga_local_iterator_init(g_B, &hdl_b);
+    pnga_local_iterator_init(g_c, &hdl_c);
+    while (pnga_local_iterator_next(&hdl_c,loC,hiC,&C_ptr,ldC)) {
+      pnga_local_iterator_next(&hdl_a,loA,hiA,&A_ptr,ldA);
+      pnga_local_iterator_next(&hdl_b,loB,hiB,&B_ptr,ldB);
+
+      /* make temporary copies of loC and hiC since pnga_patch_intersect
+         destroys original versions */
+      for (j=0; j<cndim; j++) {
+        lod[j] = loC[j];
+      }
+      if (pnga_patch_intersect(clo, chi, loC, hiC, cndim)) {
+        Integer offset, last, jtot;
+        /* evaluate offsets for system */
+        offset = 0;
+        last = cndim - 1;
+        jtot = 1;
+        for (j=0; j<last; j++) {
+          offset += (loC[j] - lod[j])*jtot;
+          jtot *= ldC[j];
+        }
+        offset += (loC[last]-lod[last])*jtot;
+        switch(ctype) {
+          case C_DBL:
+            A_ptr = (void*)((double*)(A_ptr) + offset);
+            B_ptr = (void*)((double*)(B_ptr) + offset);
+            C_ptr = (void*)((double*)(C_ptr) + offset);
+            break;
+          case C_INT:
+            A_ptr = (void*)((int*)(A_ptr) + offset);
+            B_ptr = (void*)((int*)(B_ptr) + offset);
+            C_ptr = (void*)((int*)(C_ptr) + offset);
+            break;
+          case C_DCPL:
+            A_ptr = (void*)((DoubleComplex*)(A_ptr) + offset);
+            B_ptr = (void*)((DoubleComplex*)(B_ptr) + offset);
+            C_ptr = (void*)((DoubleComplex*)(C_ptr) + offset);
+            break;
+          case C_SCPL:
+            A_ptr = (void*)((SingleComplex*)(A_ptr) + offset);
+            B_ptr = (void*)((SingleComplex*)(B_ptr) + offset);
+            C_ptr = (void*)((SingleComplex*)(C_ptr) + offset);
+            break;
+          case C_FLOAT:
+            A_ptr = (void*)((float*)(A_ptr) + offset);
+            B_ptr = (void*)((float*)(B_ptr) + offset);
+            C_ptr = (void*)((float*)(C_ptr) + offset);
+            break;
+          case C_LONG:
+            A_ptr = (void*)((long*)(A_ptr) + offset);
+            B_ptr = (void*)((long*)(B_ptr) + offset);
+            C_ptr = (void*)((long*)(C_ptr) + offset);
+            break;
+          default:
+            break;
+        }
+        ngai_do_elem2_oper(atype, cndim, loC, hiC, ldC,
+            A_ptr, B_ptr, C_ptr, op);
+      }
+      /* release access to the data */
+      pnga_release       (g_A, loC, hiC);
+      pnga_release       (g_B, loC, hiC);
+      pnga_release_update(g_c, loC, hiC);
+    }
+#else
     if (num_blocks_c < 0) {
       pnga_distribution(g_c, me, loC, hiC);
       if(andim > bndim) cndim = bndim;
@@ -2088,12 +2223,12 @@ int op; /* operation to be perform between g_a and g_b */
         }
       }
     }
+#endif
   }
 
   if(A_created) pnga_destroy(g_A);
   if(B_created) pnga_destroy(g_B);
 
-  GA_POP_NAME;
   if(local_sync_end)pnga_sync();
 }
 
@@ -2367,17 +2502,17 @@ static void ngai_elem3_patch_(Integer g_a, Integer *alo, Integer *ahi, int op)
   Integer atype;
   Integer andim, adims[MAXDIM];
   Integer loA[MAXDIM], hiA[MAXDIM], ldA[MAXDIM];
-  void *A_ptr;
+  char *A_ptr;
   Integer me= pnga_nodeid();
   Integer num_blocks;
   int local_sync_begin,local_sync_end;
+  _iterator_hdl hdl;
 
   local_sync_begin = _ga_sync_begin; local_sync_end = _ga_sync_end;
   _ga_sync_begin = 1; _ga_sync_end=1; /*remove any previous masking*/
   if(local_sync_begin)pnga_sync();
 
   pnga_check_handle(g_a, "gai_elem3_patch_");
-  GA_PUSH_NAME("ngai_elem3_patch_");
 
   pnga_inquire(g_a, &atype, &andim, adims);
   num_blocks = pnga_total_blocks(g_a);
@@ -2387,6 +2522,66 @@ static void ngai_elem3_patch_(Integer g_a, Integer *alo, Integer *ahi, int op)
     if(alo[i] <= 0 || ahi[i] > adims[i])
       pnga_error("g_a indices out of range ", g_a);
 
+#if 1
+  pnga_local_iterator_init(g_a, &hdl);
+  while (pnga_local_iterator_next(&hdl, loA, hiA, &A_ptr, ldA)) {
+    Integer offset, j, jtmp, chk;
+    Integer loS[MAXDIM];
+    /* loA is changed by pnga_patch_intersect, so
+     *            save a copy */
+    for (j=0; j<andim; j++) {
+      loS[j] = loA[j];
+    }
+
+    /*  determine subset of my local patch to access  */
+    /*  Output is in loA and hiA */
+    if(pnga_patch_intersect(alo, ahi, loA, hiA, andim)){
+
+      /* Check for partial overlap */
+      chk = 1;
+      for (j=0; j<andim; j++) {
+        if (loS[j] < loA[j]) {
+          chk=0;
+          break;
+        }
+      }
+      if (!chk) {
+        /* Evaluate additional offset for pointer */
+        offset = 0;
+        jtmp = 1;
+        for (j=0; j<andim-1; j++) {
+          offset += (loA[j]-loS[j])*jtmp;
+          jtmp *= ldA[j];
+        }
+        offset += (loA[andim-1]-loS[andim-1])*jtmp;
+        switch (atype){
+          case C_INT:
+            A_ptr = (void*)((int*)A_ptr + offset);
+            break;
+          case C_DCPL:
+            A_ptr = (void*)((double*)A_ptr + 2*offset);
+            break;
+          case C_SCPL:
+            A_ptr = (void*)((float*)A_ptr + 2*offset);
+            break;
+          case C_DBL:
+            A_ptr = (void*)((double*)A_ptr + offset);
+            break;
+          case C_FLOAT:
+            A_ptr = (void*)((float*)A_ptr + offset);
+            break;
+          case C_LONG:
+            A_ptr = (void*)((long*)A_ptr + offset);
+            break;
+          default: pnga_error(" wrong data type ",atype);
+        }
+      }
+
+      /* compute "local" operation according to op */
+      ngai_do_elem3_patch(atype, andim, loA, hiA, ldA, A_ptr, op);
+    }
+  }
+#else
   if (num_blocks < 0) {
   /* find out coordinates of patches of g_a, g_b and g_c that I own */
     pnga_distribution(g_a, me, loA, hiA);
@@ -2559,8 +2754,7 @@ static void ngai_elem3_patch_(Integer g_a, Integer *alo, Integer *ahi, int op)
       }
     }
   }
-
-  GA_POP_NAME;
+#endif
   if(local_sync_end)pnga_sync();
 }
 
@@ -2645,15 +2839,15 @@ Integer g_a, *alo, *ahi;    /* patch of g_a */
   Integer atype;
   Integer andim, adims[MAXDIM];
   Integer loA[MAXDIM], hiA[MAXDIM], ldA[MAXDIM];
-  void *A_ptr; 
+  char *A_ptr; 
   Integer iretval;
   Integer num_blocks;
   Integer me= pnga_nodeid();
+  _iterator_hdl hdl;
 
 
   pnga_sync();
   pnga_check_handle(g_a, "has_negative_elem");
-  GA_PUSH_NAME("has_negative_elem");
 
   pnga_inquire(g_a, &atype, &andim, adims);
   num_blocks = pnga_total_blocks(g_a);
@@ -2663,6 +2857,66 @@ Integer g_a, *alo, *ahi;    /* patch of g_a */
     if(alo[i] <= 0 || ahi[i] > adims[i])
       pnga_error("g_a indices out of range ", g_a);
 
+#if 1
+  pnga_local_iterator_init(g_a, &hdl);
+  while (pnga_local_iterator_next(&hdl, loA, hiA, &A_ptr, ldA)) {
+    Integer offset, j, jtmp, chk;
+    Integer loS[MAXDIM];
+    /* loA is changed by pnga_patch_intersect, so
+     *            save a copy */
+    for (j=0; j<andim; j++) {
+      loS[j] = loA[j];
+    }
+
+    /*  determine subset of my local patch to access  */
+    /*  Output is in loA and hiA */
+    if(pnga_patch_intersect(alo, ahi, loA, hiA, andim)){
+
+      /* Check for partial overlap */
+      chk = 1;
+      for (j=0; j<andim; j++) {
+        if (loS[j] < loA[j]) {
+          chk=0;
+          break;
+        }
+      }
+      if (!chk) {
+        /* Evaluate additional offset for pointer */
+        offset = 0;
+        jtmp = 1;
+        for (j=0; j<andim-1; j++) {
+          offset += (loA[j]-loS[j])*jtmp;
+          jtmp *= ldA[j];
+        }
+        offset += (loA[andim-1]-loS[andim-1])*jtmp;
+        switch (atype){
+          case C_INT:
+            A_ptr = (void*)((int*)A_ptr + offset);
+            break;
+          case C_DCPL:
+            A_ptr = (void*)((double*)A_ptr + 2*offset);
+            break;
+          case C_SCPL:
+            A_ptr = (void*)((float*)A_ptr + 2*offset);
+            break;
+          case C_DBL:
+            A_ptr = (void*)((double*)A_ptr + offset);
+            break;
+          case C_FLOAT:
+            A_ptr = (void*)((float*)A_ptr + offset);
+            break;
+          case C_LONG:
+            A_ptr = (void*)((long*)A_ptr + offset);
+            break;
+          default: pnga_error(" wrong data type ",atype);
+        }
+      }
+
+      /* check all values in patch */
+      ngai_has_negative_element(atype, andim, loA, hiA, ldA, A_ptr, &iretval);
+    }
+  }
+#else
   if (num_blocks < 0) {
     /* find out coordinates of patches of g_a, g_b and g_c that I own */
     pnga_distribution(g_a, me, loA, hiA);
@@ -2835,8 +3089,7 @@ Integer g_a, *alo, *ahi;    /* patch of g_a */
       }
     }
   }
-
-  GA_POP_NAME;
+#endif
   pnga_sync();
   return iretval; /*negative element is not found in g_a*/
 }
@@ -2902,7 +3155,6 @@ void pnga_step_bound_info_patch(
      pnga_check_handle(g_xxll, "pnga_step_bound_info_patch");
      pnga_check_handle(g_xxuu, "pnga_step_bound_info_patch");
 
-     GA_PUSH_NAME("pnga_step_bound_info_patch");
 
      /* get chaacteristics of the input ga patches */
 
@@ -2975,7 +3227,8 @@ void pnga_step_bound_info_patch(
        compatible3 = 0;
      }
      compatible = compatible * compatible2 * compatible3;
-     pnga_gop(pnga_type_f2c(MT_F_INT), &compatible, 1, "*");
+     /* pnga_gop(pnga_type_f2c(MT_F_INT), &compatible, 1, "*"); */
+     pnga_gop(pnga_type_f2c(MT_F_INT), &compatible, 1, "&&");
      if(!compatible) {
        pnga_error(" pnga_step_bound_info_patch mismatched patchs ",0);
      }
@@ -3217,7 +3470,6 @@ void pnga_step_bound_info_patch(
      pnga_destroy(g_R); 
      pnga_destroy(g_S); 
      pnga_destroy(g_T); 
-     GA_POP_NAME;
      if(local_sync_end)pnga_sync();
 }
 
@@ -3267,7 +3519,6 @@ void pnga_step_max_patch(g_a,  alo, ahi, g_b,  blo, bhi, result)
   pnga_check_handle(g_a, "ga_step_max_patch_");
   pnga_check_handle(g_b, "ga_step_max_patch_");
 
-  GA_PUSH_NAME("ga_step_max_patch_");
 
   /* get chacteristics of the input ga patches */
 
@@ -3297,7 +3548,8 @@ void pnga_step_max_patch(g_a,  alo, ahi, g_b,  blo, bhi, result)
   /* test if patches match */
   if(pnga_comp_patch(andim, alo, ahi, bndim, blo, bhi)) compatible = 1;
   else compatible = 0;
-  pnga_gop(pnga_type_f2c(MT_F_INT), &compatible, 1, "*");
+  /* pnga_gop(pnga_type_f2c(MT_F_INT), &compatible, 1, "*"); */
+  pnga_gop(pnga_type_f2c(MT_F_INT), &compatible, 1, "&&");
   if(!compatible) {
     pnga_error(" ga_step_max_patch_ mismatched patchs ",0);
   }
@@ -3399,7 +3651,6 @@ void pnga_step_max_patch(g_a,  alo, ahi, g_b,  blo, bhi, result)
     }
     pnga_destroy(g_c);
   }
-  GA_POP_NAME;
   if(local_sync_end)pnga_sync();
 }
 

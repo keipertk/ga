@@ -7,11 +7,11 @@
 
 #include "groups.h"
 
-#define COMEX_MAX_NB_OUTSTANDING 8
+#define COMEX_MAX_NB_OUTSTANDING 32 
 #define COMEX_MAX_STRIDE_LEVEL 8
 #define COMEX_TAG 27624
 #define COMEX_STATIC_BUFFER_SIZE (2u*1048576u)
-#define SHM_NAME_SIZE 20
+#define SHM_NAME_SIZE 31
 #define UNLOCKED -1
 
 /* performance or correctness related settings */
@@ -32,6 +32,9 @@
 #define ENABLE_PUT_PACKED 1
 #define ENABLE_GET_PACKED 1
 #define ENABLE_ACC_PACKED 1
+#define ENABLE_PUT_DATATYPE 1
+#define ENABLE_GET_DATATYPE 1
+#define ENABLE_ACC_DATATYPE 1
 #define ENABLE_PUT_IOV 1
 #define ENABLE_GET_IOV 1
 #define ENABLE_ACC_IOV 1

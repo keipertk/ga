@@ -13,16 +13,25 @@
 #include "ga.h"
 #include "mp3.h"
 
-/* utilities for GA test programs */
-#include "testutil.h"
-
 #define N 10            /* first dimension  */
 #define NDIM 4          /* number of dimensions */
 #define BASE 0
-#define PERMUTE_ 
 
 /*#define NEW_API*/
 
+/*\ print subscript of ndim dimensional array with two strings before and after
+\*/
+void print_subscript(char *pre,int ndim, int subscript[], char* post)
+{
+    int i;
+
+    printf("%s [",pre);
+    for(i=0;i<ndim;i++){
+        printf("%d",subscript[i]);
+        if(i==ndim-1)printf("] %s",post);
+        else printf(",");
+    }
+}
 
 /*\ fill n-dimensional array section with value
 \*/
@@ -193,7 +202,7 @@ double *buf;
       */
      srand(me); /* different seed for every process */
      hi[ndim-1]=adims[ndim-1] -1 + BASE;
-     for(i=1;i<ndim-1; i++)ld[i]=1; ld[ndim-2]=adims[ndim-1] -1 + BASE;
+     for(i=1;i<ndim-1; i++)ld[i]=1; ld[ndim-2]=adims[ndim-1] + BASE;
 
      /* get buffer memory */
      buf = (double*)malloc(adims[ndim-1]*sizeof(double));
@@ -251,18 +260,6 @@ int me, nproc;
 
     if(!MA_init((Integer)MT_F_DBL, stack/nproc, heap/nproc))
        GA_Error("MA_init failed bytes= %d",stack+heap);   
-
-#ifdef PERMUTE
-      {
-        int i, *list = (int*)malloc(nproc*sizeof(int));
-        if(!list)GA_Error("malloc failed",nproc);
-
-        for(i=0; i<nproc;i++)list[i]=nproc-1-i;
-
-        GA_Register_proclist(list, nproc);
-        free(list);
-      }
-#endif
 
     if(GA_Uses_fapi())GA_Error("Program runs with C API only",1);
     

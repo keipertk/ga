@@ -530,11 +530,11 @@ void scale_cplx_patch(double *alpha, int ndim, double *patch1, int lo1[], int hi
     idx1 = Index(ndim, subscr1, dims1);  /* calculate element Index from a subscript */
     idx1 -= offset1;
     tmp = patch1[2*idx1];
-    printf("p[%d] scale idx: %d ar: %f ai: %f pr: %f pi: %f\n",
-        me,idx1,alpha[0],alpha[1],patch1[2*idx1],patch1[2*idx1+1]);
+    //printf("p[%d] scale idx: %d ar: %f ai: %f pr: %f pi: %f\n",
+    //    me,idx1,alpha[0],alpha[1],patch1[2*idx1],patch1[2*idx1+1]);
     patch1[2*idx1] = alpha[0]*patch1[2*idx1]-alpha[1]*patch1[2*idx1+1];
     patch1[2*idx1+1] = alpha[1]*tmp+alpha[0]*patch1[2*idx1+1];
-    printf("p[%d] rpatch: %f ipatch: %f\n",me,patch1[2*idx1],patch1[2*idx1+1]);
+    //printf("p[%d] rpatch: %f ipatch: %f\n",me,patch1[2*idx1],patch1[2*idx1+1]);
     update_subscript(ndim, subscr1, lo1, hi1);
   }
 }
@@ -557,9 +557,11 @@ void create_array(void *a[], int elem_size, int ndim, int dims[])
 
 void destroy_array(void *ptr[])
 {
+  int rc;
   comex_barrier(COMEX_GROUP_WORLD);
 #if 1
-  assert(!comex_free(ptr[me], COMEX_GROUP_WORLD));
+  rc = comex_free(ptr[me], COMEX_GROUP_WORLD);
+  assert(rc == 0);
 #endif
 }
 
@@ -1520,7 +1522,8 @@ void test_vector_acc()
   comex_barrier(COMEX_GROUP_WORLD);
 
   /* copy my patch into local array c */
-  assert(!comex_get((double *)b[proc], c, bytes, proc, COMEX_GROUP_WORLD));
+  rc = comex_get((double *)b[proc], c, bytes, proc, COMEX_GROUP_WORLD);
+  assert(rc == 0);
 
   /*        scale = alpha*TIMES*nproc; */
   scale = alpha * TIMES * nproc * nproc;

@@ -14,6 +14,86 @@
 extern int ARMCI_Default_Proc_Group;
 MPI_Comm ARMCI_COMM_WORLD;
 
+int _number_of_procs_per_node = 1;
+int _my_node_id;
+ARMCI_Group ARMCI_Node_group;
+
+/**
+ * Initialize parameters that can be used by the armci_domain_xxx function
+ */
+void armci_init_domains(MPI_Comm comm)
+{
+  int i, status;
+  char name[MPI_MAX_PROCESSOR_NAME];
+  char *namebuf, *buf_ptr, *prev_ptr;
+  int namelen, rank, size, nprocs;
+  int *nodeid, *nodesize;
+  int ncnt;
+
+  status = MPI_Comm_rank(comm, &rank);
+  assert(MPI_SUCCESS == status);
+  status = MPI_Comm_size(comm, &size);
+  assert(MPI_SUCCESS == status);
+
+  /* determine number of processors per node. First find node name */
+  namebuf = (char*)malloc(MPI_MAX_PROCESSOR_NAME*size*sizeof(char));
+  nodeid = (int*)malloc(size*sizeof(int));
+  nodesize = (int*)malloc(size*sizeof(int));
+  MPI_Get_processor_name(name, &namelen);
+  status = MPI_Allgather(name,MPI_MAX_PROCESSOR_NAME,MPI_CHAR,namebuf,
+      MPI_MAX_PROCESSOR_NAME,MPI_CHAR,comm);
+  assert(MPI_SUCCESS == status);
+
+  /* Bin all processors with the same node name */
+  ncnt = 0;
+  nodeid[0] = ncnt;
+  nodesize[0] = 1;
+  prev_ptr = namebuf;
+  buf_ptr = namebuf+MPI_MAX_PROCESSOR_NAME;
+  for (i=1; i<size; i++) {
+    namelen = strlen(buf_ptr);
+    if (strncmp(prev_ptr,buf_ptr,namelen) != 0) {
+      ncnt++;
+      nodesize[ncnt]=0;
+    }
+    nodeid[i] = ncnt;
+    nodesize[ncnt]++;
+    prev_ptr += MPI_MAX_PROCESSOR_NAME;
+    buf_ptr += MPI_MAX_PROCESSOR_NAME;
+  }
+  ncnt++;
+  /* check to see if all nodes have the same number of processors */
+  status = 1;
+  nprocs = nodesize[0];
+  for (i=1; i<ncnt; i++) {
+    if (nodesize[i] != nprocs) status = 0;
+  }
+  /* uneven number of processors per node so bail out and assume each
+   * processor is a node */
+  if (!status) {
+    _number_of_procs_per_node = 1;
+    _my_node_id = rank;
+  } else {
+    /* Same number of processors for all nodes so set domain variables */
+    _number_of_procs_per_node = nprocs;
+    _my_node_id = rank/_number_of_procs_per_node;
+  }
+
+  free(namebuf);
+  free(nodeid);
+  free(nodesize);
+  status = MPI_Barrier(comm);
+  assert(MPI_SUCCESS == status);
+  /* Create a comex group on the node */
+  if (_number_of_procs_per_node > 1) {
+    int *nodelist = (int*)malloc(_number_of_procs_per_node*sizeof(int));
+    for (i=0; i<_number_of_procs_per_node; i++)
+      nodelist[i] = _my_node_id*_number_of_procs_per_node+i;
+    comex_group_create(_number_of_procs_per_node, nodelist,
+        COMEX_GROUP_WORLD, &ARMCI_Node_group);
+  }
+}
+
 /**
  * This function checks to see if the data copy is contiguous for both the src
  * and destination buffers. If it is, then a contiguous operation can be used
@@ -29,6 +109,9 @@ MPI_Comm ARMCI_COMM_WORLD;
 int armci_check_contiguous(int *src_stride, int *dst_stride,
     int *count, int n_stride)
 {
+#if 0
+  /* This is code from the merge between CMX and the current develop branch
+   * (2018/7/5) */
   int i;
   int ret = 1;
   int stridelen = 1;
@@ -47,6 +130,7 @@ int armci_check_contiguous(int *src_stride, int *dst_stride,
    * be used to evaluate some corner cases
    */
   for (i=0; i<n_stride; i++) {
+<<<<<<< HEAD
     stridelen *= count[i];
     if ((count[i] < src_ld[i] || count[i] < dst_ld[i])
         && gap == 1) {
@@ -61,6 +145,16 @@ int armci_check_contiguous(int *src_stride, int *dst_stride,
       /* Found a mismatch between requested block and physical dimensions
        * indicating a possible stride in memory
        * */
+=======
+    /* check for overflow */
+    int tmp = stridelen * count[i];
+    if (stridelen != 0 && tmp / stridelen != count[i]) {
+      ret = 0;
+      break;
+    }
+    stridelen = tmp;
+    if (stridelen < src_stride[i] || stridelen < dst_stride[i]) {
+>>>>>>> develop
       ret = 0;
       break;
     }
@@ -74,6 +168,29 @@ int armci_check_contiguous(int *src_stride, int *dst_stride,
     if (count[n_stride] != 1) ret = 0;
   }
   return ret;
+#else
+  int i;
+  int ret = 1;
+  int stridelen = 1;
+  /* NOTE: The count array contains the length of the final dimension and could
+   * be used to evaluate some corner cases that are not picked up by this
+   * algorithm
+   */ 
+  for (i=0; i<n_stride; i++) {
+    /* check for overflow */
+    int tmp = stridelen * count[i];
+    if (stridelen != 0 && tmp / stridelen != count[i]) {
+      ret = 0;
+      break;
+    }
+    stridelen = tmp;
+    if (stridelen < src_stride[i] || stridelen < dst_stride[i]) {
+      ret = 0;
+      break;
+    }
+  }
+  return ret;
+#endif
 }
 
 /**
@@ -109,7 +226,7 @@ int PARMCI_AccS(int optype, void *scale, void *src_ptr, int *src_stride_arr, voi
 {
   int iret;
   /* check if data is contiguous */
-  if (armci_check_contiguous(src_stride_arr, dst_stride_arr, count, stride_levels)) {
+  if (armci_checkt_contiguous(src_stride_arr, dst_stride_arr, count, stride_levels)) {
     int i;
     int lcount = 1;
     for (i=0; i<=stride_levels; i++) lcount *= count[i];
@@ -136,13 +253,29 @@ int PARMCI_AccV(int op, void *scale, armci_giov_t *darr, int len, int proc)
 /* fence is always on the world group */
 void PARMCI_AllFence()
 {
-    assert(COMEX_SUCCESS == comex_fence_all(COMEX_GROUP_WORLD));
+    int rc;
+    rc = comex_fence_all(COMEX_GROUP_WORLD);
+    assert(COMEX_SUCCESS == rc);
+}
+
+
+void PARMCI_GroupFence(ARMCI_Group *group)
+{
+  int rc;
+  if (*group > 0) {
+    rc = comex_fence_all(*group);
+  } else {
+    rc = comex_fence_all(COMEX_GROUP_WORLD);
+  }
+  assert(COMEX_SUCCESS == rc);
 }
 
 
 void PARMCI_Barrier()
 {
-    assert(COMEX_SUCCESS == comex_barrier(ARMCI_Default_Proc_Group));
+    int rc;
+    rc = comex_barrier(ARMCI_Default_Proc_Group);
+    assert(COMEX_SUCCESS == rc);
 }
 
 
@@ -199,7 +332,7 @@ int PARMCI_GetS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_stri
 {
   int iret;
   /* check if data is contiguous */
-  if (armci_check_contiguous(src_stride_arr, dst_stride_arr, count, stride_levels)) {
+  if (armci_checkt_contiguous(src_stride_arr, dst_stride_arr, count, stride_levels)) {
     int i;
     int lcount = 1;
     for (i=0; i<=stride_levels; i++) lcount *= count[i];
@@ -225,36 +358,40 @@ int PARMCI_GetV(armci_giov_t *darr, int len, int proc)
 
 double PARMCI_GetValueDouble(void *src, int proc)
 {
+    int rc;
     double val;
-    assert(COMEX_SUCCESS == 
-            comex_get(src, &val, sizeof(double), proc, COMEX_GROUP_WORLD));
+    rc = comex_get(src, &val, sizeof(double), proc, COMEX_GROUP_WORLD);
+    assert(COMEX_SUCCESS == rc);
     return val;
 }
 
 
 float PARMCI_GetValueFloat(void *src, int proc)
 {
+    int rc;
     float val;
-    assert(COMEX_SUCCESS == 
-            comex_get(src, &val, sizeof(float), proc, COMEX_GROUP_WORLD));
+    rc = comex_get(src, &val, sizeof(float), proc, COMEX_GROUP_WORLD);
+    assert(COMEX_SUCCESS == rc);
     return val;
 }
 
 
 int PARMCI_GetValueInt(void *src, int proc)
 {
+    int rc;
     int val;
-    assert(COMEX_SUCCESS == 
-            comex_get(src, &val, sizeof(int), proc, COMEX_GROUP_WORLD));
+    rc = comex_get(src, &val, sizeof(int), proc, COMEX_GROUP_WORLD);
+    assert(COMEX_SUCCESS == rc);
     return val;
 }
 
 
 long PARMCI_GetValueLong(void *src, int proc)
 {
+    int rc;
     long val;
-    assert(COMEX_SUCCESS == 
-            comex_get(src, &val, sizeof(long), proc, COMEX_GROUP_WORLD));
+    rc = comex_get(src, &val, sizeof(long), proc, COMEX_GROUP_WORLD);
+    assert(COMEX_SUCCESS == rc);
     return val;
 }
 
@@ -262,7 +399,11 @@ long PARMCI_GetValueLong(void *src, int proc)
 int PARMCI_Init()
 {
     int rc = comex_init();
-    assert(COMEX_SUCCESS == comex_group_comm(COMEX_GROUP_WORLD, &ARMCI_COMM_WORLD));
+    assert(COMEX_SUCCESS == rc);
+    rc = comex_group_comm(COMEX_GROUP_WORLD, &ARMCI_COMM_WORLD);
+    assert(COMEX_SUCCESS == rc);
+    ARMCI_Default_Proc_Group = 0;
+    armci_init_domains(ARMCI_COMM_WORLD);
     return rc;
 }
 
@@ -270,7 +411,11 @@ int PARMCI_Init()
 int PARMCI_Init_args(int *argc, char ***argv)
 {
     int rc = comex_init_args(argc, argv);
-    assert(COMEX_SUCCESS == comex_group_comm(COMEX_GROUP_WORLD, &ARMCI_COMM_WORLD));
+    assert(COMEX_SUCCESS == rc);
+    rc = comex_group_comm(COMEX_GROUP_WORLD, &ARMCI_COMM_WORLD);
+    assert(COMEX_SUCCESS == rc);
+    armci_init_domains(ARMCI_COMM_WORLD);
+    ARMCI_Default_Proc_Group = 0;
     return rc;
 }
 
@@ -378,7 +523,7 @@ int PARMCI_NbAccS(int optype, void *scale, void *src_ptr, int *src_stride_arr, v
 {
   int iret;
   /* check if data is contiguous */
-  if (armci_check_contiguous(src_stride_arr, dst_stride_arr, count, stride_levels)) {
+  if (armci_checkt_contiguous(src_stride_arr, dst_stride_arr, count, stride_levels)) {
     int i;
     int lcount = 1;
     for (i=0; i<=stride_levels; i++) lcount *= count[i];
@@ -413,7 +558,7 @@ int PARMCI_NbGetS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_st
 {
   int iret;
   /* check if data is contiguous */
-  if (armci_check_contiguous(src_stride_arr, dst_stride_arr, count, stride_levels)) {
+  if (armci_checkt_contiguous(src_stride_arr, dst_stride_arr, count, stride_levels)) {
     int i;
     int lcount = 1;
     for (i=0; i<=stride_levels; i++) lcount *= count[i];
@@ -448,7 +593,7 @@ int PARMCI_NbPutS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_st
 {
   int iret;
   /* check if data is contiguous */
-  if (armci_check_contiguous(src_stride_arr, dst_stride_arr, count, stride_levels)) {
+  if (armci_checkt_contiguous(src_stride_arr, dst_stride_arr, count, stride_levels)) {
     int i;
     int lcount = 1;
     for (i=0; i<=stride_levels; i++) lcount *= count[i];
@@ -507,7 +652,7 @@ int PARMCI_PutS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_stri
 {
   int iret;
   /* check if data is contiguous */
-  if (armci_check_contiguous(src_stride_arr, dst_stride_arr, count, stride_levels)) {
+  if (armci_checkt_contiguous(src_stride_arr, dst_stride_arr, count, stride_levels)) {
     int i;
     int lcount = 1;
     for (i=0; i<=stride_levels; i++) lcount *= count[i];
@@ -584,8 +729,10 @@ int PARMCI_Rmw(int op, void *ploc, void *prem, int extra, int proc)
 
 int PARMCI_Test(armci_hdl_t *nb_handle)
 {
+    int rc;
     int status;
-    assert(COMEX_SUCCESS == comex_test(nb_handle, &status));
+    rc = comex_test(nb_handle, &status);
+    assert(COMEX_SUCCESS == rc);
     return status;
 }
 
@@ -627,36 +774,47 @@ int parmci_notify_wait(int proc, int *pval)
     return 0;
 }
 
-
+/**
+ * Return number of processes on node id
+ */
 int armci_domain_nprocs(armci_domain_t domain, int id)
 {
-    return 1;
+    return _number_of_procs_per_node;
 }
 
 
+/**
+ * Return ID of node corresponding to glob_proc_id
+ */
 int armci_domain_id(armci_domain_t domain, int glob_proc_id)
 {
-    return glob_proc_id;
+    return glob_proc_id/_number_of_procs_per_node;
 }
 
-
+/**
+ * Return global rank of local proc (loc_proc_id) on node id
+ */
 int armci_domain_glob_proc_id(armci_domain_t domain, int id, int loc_proc_id)
 {
-    return id;
+    return id*_number_of_procs_per_node+loc_proc_id;
 }
 
 
+/**
+ * Return ID of node containing calling process
+ */
 int armci_domain_my_id(armci_domain_t domain)
 {
     int rank;
 
     assert(comex_initialized());
-    comex_group_rank(COMEX_GROUP_WORLD, &rank);
 
-    return rank;
+    return _my_node_id;
 }
 
-
+/**
+ * Return number of nodes in the entire system
+ */
 int armci_domain_count(armci_domain_t domain)
 {
     int size;
@@ -664,7 +822,7 @@ int armci_domain_count(armci_domain_t domain)
     assert(comex_initialized());
     comex_group_size(COMEX_GROUP_WORLD, &size);
 
-    return size;
+    return size/_number_of_procs_per_node;
 }
 
 
@@ -674,7 +832,7 @@ int armci_domain_same_id(armci_domain_t domain, int proc)
 
     comex_group_rank(COMEX_GROUP_WORLD, &rank);
 
-    return (proc == rank);
+    return (proc/_number_of_procs_per_node == rank/_number_of_procs_per_node);
 }
 
 

@@ -352,10 +352,6 @@ extern void Error();
 
     /* print GA names stack */
     sprintf(error_buffer,"%d:", (int)pnga_nodeid());
-    for(level = 0; level < GA_stack_size; level++){
-       strcat(error_buffer,GA_name_stack[level]);
-       strcat(error_buffer,":");
-    }
     strcat(error_buffer,string);
     strcat(error_buffer,":");
        
@@ -1022,7 +1018,7 @@ Integer pnga_cluster_nprocs(Integer node)
 }
 
 
-/*\ global id of calling process on the node
+/*\ global id of corresponding to node and local process ids
 \*/
 #if HAVE_SYS_WEAK_ALIAS_PRAGMA
 #   pragma weak wnga_cluster_procid = pnga_cluster_procid

@@ -230,7 +230,7 @@ c
       INTGR4 nmax,nprocs,twoi
       double precision nprocs0
       double precision otto
-      parameter(nmax=11,fact=((7108d0*7108d0)/1024d0),otto=8d0)
+      parameter(nmax=19,fact=((7108d0*7108d0)/1024d0),otto=8d0)
 cnew      parameter(nmax=11,fact=((7108d0*7108d0)/512d0),otto=8d0)
 c     lower bound of 8 procs
       nprocs0=max((n*n)/fact,otto)
@@ -238,7 +238,7 @@ c
 c     try to get powers of two
 c
       do i = nmax, 0, -1 
-         if(nint(nprocs0/(2d0**i)).eq.1) goto 1
+         if(nint(nprocs0/(2d0**i)).ge.1) goto 1
       enddo
       i=4
 1     twoi=2**i
@@ -829,9 +829,10 @@ c~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 c
       logical status
 c
-      integer ha, adra          !A
-      integer hb, adrb          !B
-      integer hi, adri          !ipiv
+      integer ha          !A
+      integer hb          !B
+      integer hi          !ipiv
+      MA_ACCESS_INDEX_TYPE adrA, adrB, adrI
 c
 c
       logical oactive           ! true iff this process participates
@@ -1079,7 +1080,8 @@ c****
       integer dimA1, dimA2, typeA
       integer me, nproc
       integer n
-      integer i, j, hBUF, adrBUF
+      integer i, j, hBUF
+      MA_ACCESS_INDEX_TYPE adrBUF
 
 c**** Check Environment
       nproc = ga_nnodes()
@@ -1143,7 +1145,8 @@ c****
       integer dimA1, dimA2, typeA
       integer me, nproc
       integer n
-      integer i, j, hBUF, adrBUF, idx      
+      integer i, j, hBUF
+      MA_ACCESS_INDEX_TYPE adrBUF, idx      
 
 c**** Check Environment
       nproc = ga_nnodes()
@@ -1270,7 +1273,8 @@ c****
       integer     hsA          ! (input/output)
 c****
       logical status
-      integer hA, adrA
+      integer hA
+      MA_ACCESS_INDEX_TYPE adrA
       integer dimA18, dimA28, typeA
       INTGR4 dimA1, dimA2
       INTGR4 mpA, nqA
@@ -1339,8 +1343,13 @@ c**** Allocate A
          if (use_direct) then
            call nga_access_block_segment(g_A,me,adrA,alen)
          else
-           if (elemA.ne.0)
-     &          status = ma_push_get(MT_DBL, elemA, 'A', hA, adrA)
+c           if (elemA.ne.0)
+c     &          status = ma_push_get(MT_DBL, elemA, 'A', hA, adrA)
+           if (elemA.ne.0) then
+c                write(6,'(a,i1,a,i12)') 
+c     &         'p[',me,'] allocating hA hsa: ',hsa
+                status = ma_push_get(MT_DBL, elemA, 'A', hA, adrA)
+           endif
            if (.not.status)
      &          call ga_error('ga_llt_f: mem alloc failed A ', -1)
          endif
@@ -1380,6 +1389,7 @@ c**** and hsA==-1 or info>0 (i.e. fact. cannot be completed)
 c**** then deallocate the SL A MA array
                if (hsA.eq.-1) then
                   if (.not.use_direct) then
+c                    write(6,'(a,i1,a)') 'p[',me,'] deallocating hA at 1'
                     status = ma_pop_stack(hA)
                   endif
 c**** otherwise just save the hA MA handle            
@@ -1389,6 +1399,7 @@ c**** otherwise just save the hA MA handle
             endif
          else
             if (.not.use_direct) then
+c               write(6,'(a,i1,a)') 'p[',me,'] deallocating hA at 2'
                status = ma_pop_stack(hA)
             endif
          endif
@@ -1454,8 +1465,8 @@ c****
       integer     hsA          ! (input)
 c****
       logical status
-      integer hA, adrA
-      integer hB, adrB
+      integer hA, hB
+      MA_ACCESS_INDEX_TYPE adrA, adrB
       integer dimA18, dimA28, typeA
       integer dimB18, dimB28, typeB
       INTGR4 dimA1, dimA2
@@ -1674,7 +1685,8 @@ c****
       integer     hsA          ! (input/output)
 c****
       logical status
-      integer hA, adrA
+      integer hA
+      MA_ACCESS_INDEX_TYPE adrA
       integer dimA18, dimA28, typeA
       INTGR4 dimA1, dimA2
       INTGR4 mpA, nqA
@@ -1997,8 +2009,9 @@ c
 c
       character*1 jobz,  uplo
 c
-      integer ha, adra          !A
-      integer hb, adrb          !B
+      integer ha          !A
+      integer hb          !B
+      MA_ACCESS_INDEX_TYPE adrA, adrB
 c
 c
       logical oactive           ! true iff this process participates
@@ -3529,6 +3542,9 @@ c     broadcast evals
 #if HAVE_ELPA
       subroutine ga_evp_real(g_a, g_b, eval, nb8, mout)
       use ELPA1
+#if HAVE_ELPA_2015 || HAVE_ELPA_2016
+      use ELPA2
+#endif
       implicit none
 #include "mpif.h"
 #include "mafdecls.fh"
@@ -3691,7 +3707,9 @@ c***  copy g_a to A and g_b to B using the block cyclic scalapack format
 c     
          call ga_to_SL2(g_a, dimA1, dimA2, nb, nb,
      $        dbl_mb(adrA), lda, mpA, nqA)
+         endif
          call ga_sync()
+         if(oactive) then
 c     
 c***  fill SCALAPACK matrix descriptors
 c     
@@ -3708,18 +3726,34 @@ c
      .        -info8)
 c     
 c     
-
+#if HAVE_ELPA_2015 || HAVE_ELPA_2016
+           mpierr=get_elpa_communicators (elpa_comm, 
+#else
            mpierr=get_elpa_row_col_comms(elpa_comm,
+#endif
      V        myrow2, mycol2, 
      V        elpa_comm_rows, elpa_comm_cols)
            if(mpierr.ne.0) call ga_error(
      A     'ga-evp_real: get_elpa_row_col failed ',mpierr)
  
-
+#if HAVE_ELPA_2016
+         if(.not.solve_evp_real_2stage_double(
+#elif HAVE_ELPA_2015
+         if(.not.solve_evp_real_2stage(
+#endif
+#if HAVE_ELPA_2016 || HAVE_ELPA_2015
+     C        n, mout4, 
+     A        dbl_mb(adra), lda, 
+     E        eval, dbl_mb(adrb), ldb, nb, 
+     C          nqa,
+     A        elpa_comm_rows, elpa_comm_cols,
+     F        elpa_comm))
+#else
          if(.not.solve_evp_real(n, mout4, 
      A        dbl_mb(adra), lda, 
      E        eval, dbl_mb(adrb), ldb, nb, 
      A        elpa_comm_rows, elpa_comm_cols))
+#endif
      E   call ga_error(' solve_evp_real failed',0)
 
          if(iam.eq.0.and.mout4.ne.n) 
@@ -3744,14 +3778,13 @@ c
          if ( elemB .ne. 0 ) status = ma_pop_stack(hb)
 
          if ( elemA .ne. 0 ) status = ma_pop_stack(ha)
-           call MPI_Group_free( elpa_group, mpierr)
-         if(mpierr.ne.0) call ga_error(
-     A     'ga-evp_real: mpigroupfree failed ',mpierr)
            call MPI_comm_free( elpa_comm, mpierr)
          if(mpierr.ne.0) call ga_error(
      A     'ga-evp_real: mpicommfree failed ',mpierr)
-c     
-      endif
+      endif ! oactive
+      call MPI_Group_free( elpa_group, mpierr)
+      if(mpierr.ne.0) call ga_error(
+     A     'ga-evp_real: mpigroupfree failed ',mpierr)
       call ga_sync()
       if(maxproc.lt.nnodes.or.dima1.le.nb) then
 c     broadcast evals

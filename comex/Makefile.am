@@ -18,6 +18,7 @@ ACLOCAL_AMFLAGS = -I m4
 # automake variables used.
 include_HEADERS =
 bin_PROGRAMS =
+bin_SCRIPTS =
 check_PROGRAMS =
 check_LTLIBRARIES =
 lib_LTLIBRARIES =
@@ -39,6 +40,8 @@ libcomex_la_SOURCES =
 libcomex_la_LIBADD =
 libcomex_la_LIBADD += $(MPI_LIBS)
 libcomex_la_LIBADD += $(COMEX_NETWORK_LIBS)
+libcomex_la_LIBADD += $(BLAS_LIBS)
+libcomex_la_LIBADD += $(LIBS)
 include_HEADERS += $(top_srcdir)/src-common/comex.h
 
 AM_CPPFLAGS += $(MPI_CPPFLAGS)
@@ -51,14 +54,15 @@ AM_LDFLAGS += $(COMEX_NETWORK_LDFLAGS)
 AM_LDFLAGS += $(BLAS_LDFLAGS)
 
 LDADD += libcomex.la
-LDADD += $(LTLIBOBJS)
-LDADD += $(MPI_LIBS)
-LDADD += $(COMEX_NETWORK_LIBS)
-LDADD += $(BLAS_LIBS)
 
 # internal libcomex for possibly rolling up into other libraries
 noinst_LTLIBRARIES += libcomexi.la
 libcomexi_la_SOURCES = $(libcomex_la_SOURCES)
+libcomexi_la_LIBADD =
+libcomexi_la_LIBADD += $(MPI_LIBS)
+libcomexi_la_LIBADD += $(COMEX_NETWORK_LIBS)
+libcomexi_la_LIBADD += $(BLAS_LIBS)
+libcomexi_la_LIBADD += $(LIBS)
 
 ##############################################################################
 # compiler and linker flags
@@ -72,13 +76,17 @@ flags:
 	@echo ' COMEX libraries are installed in $(libdir)' 
 	@echo ' COMEX headers are installed in $(includedir)' 
 	@echo ' '
-	@echo ' CPPFLAGS="$(MPI_CPPFLAGS) $(COMEX_NETWORK_CPPFLAGS) -I$(includedir)"' | $(SED_NORMALIZE_WHITESPACE)
+	@echo ' CPPFLAGS="$(MPI_CPPFLAGS) $(COMEX_NETWORK_CPPFLAGS) $(BLAS_CPPFLAGS) -I$(includedir)"' | $(SED_NORMALIZE_WHITESPACE)
 	@echo ' '
-	@echo ' LDFLAGS="$(MPI_LDFLAGS) $(COMEX_NETWORK_LDFLAGS) -L$(libdir)"' | $(SED_NORMALIZE_WHITESPACE)
+	@echo ' LDFLAGS="$(MPI_LDFLAGS) $(COMEX_NETWORK_LDFLAGS) $(BLAS_LDFLAGS) -L$(libdir)"' | $(SED_NORMALIZE_WHITESPACE)
 	@echo ' '
 	@echo ' For C/C++ Programs: '
-	@echo ' LIBS="-lcomex $(MPI_LIBS) $(COMEX_NETWORK_LIBS) $(MAYBE_FLIBS)"' | $(SED_NORMALIZE_WHITESPACE)
+	@echo ' LIBS="-lcomex $(MPI_LIBS) $(COMEX_NETWORK_LIBS) $(BLAS_LIBS) $(LIBS)"' | $(SED_NORMALIZE_WHITESPACE)
 	@echo ' =========================================================================== '
+
+bin_SCRIPTS += tools/armci-config
+bin_SCRIPTS += tools/comex-config
+CLEANFILES += $(bin_SCRIPTS)
 
 ##############################################################################
 # src-portals4
@@ -248,6 +256,12 @@ XFAIL_TESTS += $(PARALLEL_TESTS_XFAIL)
 if CROSS_COMPILING
 maybe_mpiexec=`if echo "$(SERIAL_TESTS)" | $(GREP) "$$p" > /dev/null; then echo "$(MPIEXEC)" | $(SED) 's/%NP%/1/'; elif echo "$(DUAL_TESTS)" | $(GREP) "$$p" > /dev/null; then echo "$(MPIEXEC)" | $(SED) 's/%NP%/2/'; else echo "$(MPIEXEC)" | $(SED) 's/%NP%/$(NPROCS)/'; fi`; eval $$maybe_mpiexec
 else
+if COMEX_NETWORK_MPI_PR
+NPROCS1=$(shell expr $(NPROCS) + 1)
+LOG_COMPILER = \
+maybe_mpiexec=`if echo "$(SERIAL_TESTS)" | $(GREP) "$$p" > /dev/null; then echo ""; elif echo "$(DUAL_TESTS)" | $(GREP) "$$p" > /dev/null; then echo "$(MPIEXEC)" | $(SED) 's/%NP%/3/'; elif echo "$(MPIEXEC)" | $(GREP) "%NP%" > /dev/null; then echo "$(MPIEXEC)" | $(SED) 's/%NP%/$(NPROCS1)/'; else echo "$(MPIEXEC)"; fi`; eval $$maybe_mpiexec
+else
 LOG_COMPILER = \
 maybe_mpiexec=`if echo "$(SERIAL_TESTS)" | $(GREP) "$$p" > /dev/null; then echo ""; elif echo "$(DUAL_TESTS)" | $(GREP) "$$p" > /dev/null; then echo "$(MPIEXEC)" | $(SED) 's/%NP%/2/'; elif echo "$(MPIEXEC)" | $(GREP) "%NP%" > /dev/null; then echo "$(MPIEXEC)" | $(SED) 's/%NP%/$(NPROCS)/'; else echo "$(MPIEXEC)"; fi`; eval $$maybe_mpiexec
+endif # COMEX_NETWORK_MPI_PR
 endif # CROSS_COMPILING

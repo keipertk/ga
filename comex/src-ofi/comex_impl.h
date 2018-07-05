@@ -66,40 +66,42 @@
     } while (0)
 
 
-#define OFI_LOCK_INIT()                \
-do                                     \
-{                                      \
-    pthread_spin_init(&poll_spin, 0);  \
-    pthread_spin_init(&mutex_spin, 0); \
-    pthread_spin_init(&acc_spin, 0);   \
-} while(0)
+#include "fi_lock.h"
 
-#define OFI_LOCK_DESTROY()             \
-do                                     \
-{                                      \
-    pthread_spin_destroy(&poll_spin);  \
-    pthread_spin_destroy(&mutex_spin); \
-    pthread_spin_destroy(&acc_spin);   \
-} while(0)
+#define OFI_LOCK_INIT()           \
+  do                              \
+  {                               \
+      fastlock_init(&poll_lock);  \
+      fastlock_init(&mutex_lock); \
+      fastlock_init(&acc_lock);   \
+  } while(0)
 
-#define OFI_LOCK() pthread_spin_lock(&poll_spin)
-#define OFI_TRYLOCK() (!pthread_spin_trylock(&poll_spin))
-#define OFI_UNLOCK() pthread_spin_unlock(&poll_spin);
+#define OFI_LOCK_DESTROY()           \
+  do                                 \
+  {                                  \
+      fastlock_destroy(&poll_lock);  \
+      fastlock_destroy(&mutex_lock); \
+      fastlock_destroy(&acc_lock);   \
+  } while(0)
+
+#define OFI_LOCK() fastlock_acquire(&poll_lock)
+#define OFI_TRYLOCK() (!fastlock_tryacquire(&poll_lock))
+#define OFI_UNLOCK() fastlock_release(&poll_lock);
 #define OFI_CALL(ret, func) \
-do                          \
-{                           \
-    OFI_LOCK();             \
-    ret = func;             \
-    OFI_UNLOCK();           \
-} while(0)
+  do                        \
+  {                         \
+      OFI_LOCK();           \
+      ret = func;           \
+      OFI_UNLOCK();         \
+  } while(0)
 
 #define OFI_VCALL(func) \
-do                      \
-{                       \
-    OFI_LOCK();         \
-    func;               \
-    OFI_UNLOCK();       \
-} while(0)
+  do                    \
+  {                     \
+      OFI_LOCK();       \
+      func;             \
+      OFI_UNLOCK();     \
+  } while(0)
 
 /* Logging macroses */
 #define EXPR_CHKANDJUMP(ret, fmt, ...)  \
@@ -120,9 +122,10 @@ do                      \
   {                                       \
       if (unlikely(ret != COMEX_SUCCESS)) \
       {                                   \
-          err_printf("(%u) %s: " fmt,     \
+          err_printf("(%u) %s:%d: " fmt,  \
           (unsigned)getpid(),             \
-          __FUNCTION__, ##__VA_ARGS__);   \
+          __FUNCTION__, __LINE__,         \
+          ##__VA_ARGS__);                 \
           goto fn_fail;                   \
       }                                   \
   } while (0)
@@ -144,7 +147,8 @@ do                      \
   } while (0)
 
 #define OFI_RETRY(func, ...)                       \
-    do{                                            \
+    do                                             \
+    {                                              \
         ssize_t _ret;                              \
         do {                                       \
             OFI_CALL(_ret, func);                  \
@@ -167,51 +171,14 @@ do                      \
       }                                     \
   } while (0)
 
-#define PAUSE()                                               \
-do                                                            \
-{                                                             \
-    if((async_progress || async_progress_thread) &&           \
-        !pthread_equal(pthread_self(), tid))                  \
-        sched_yield();                                        \
+#define PAUSE()                              \
+do                                           \
+{                                            \
+    if (env_data.progress_thread &&          \
+        !pthread_equal(pthread_self(), tid)) \
+        sched_yield();                       \
 } while(0)
 /*#define PAUSE() sched_yield()*/
-
-static int comex_var_bool(const char* var)
-{
-    const char* val = getenv(var);
-    if(val &&
-      (val[0] == 'y' || val[0] == 'Y' ||
-       val[0] == 't' || val[0] == 'T' ||
-      (val[0] >= '1' && val[0] <= '9')))
-        return 1;
-    return 0;
-}
-
-static void print_backtrace(void)
-{
-    int j, nptrs;
-    void *buffer[100];
-    char **strings;
-
-    nptrs = backtrace(buffer, 100);
-    printf("backtrace() returned %d addresses\n", nptrs);
-    fflush(stdout);
-
-    strings = backtrace_symbols(buffer, nptrs);
-    if (strings == NULL)
-    {
-        perror("backtrace_symbols");
-        exit(EXIT_FAILURE);
-    }
-
-    for (j = 0; j < nptrs; j++)
-    {
-        printf("%s\n", strings[j]);
-        fflush(stdout);
-    }
-
-    free(strings);
-}
 
 static void err_printf(const char *fmt, ...)
 {
@@ -221,24 +188,18 @@ static void err_printf(const char *fmt, ...)
     va_end(list);
     fprintf(stderr, "\n");
     fflush(stderr);
-    //print_backtrace();
 }
 
 /* Struct declaration */
-typedef struct {
+typedef struct
+{
     MPI_Comm world_comm;
     int proc;
     int size;
+    int local_proc;
+    int local_size;
 } local_state;
 extern local_state l_state;
-
-typedef enum flush_type_t
-{
-    flush_default  = 0,
-    flush_transmit = 1,
-    flush_receive  = 2,
-    flush_all      = 3
-} flush_type_t;
 
 typedef struct local_window_t
 {
@@ -275,7 +236,11 @@ typedef struct strided_context_t
     int                is_get_op;
     struct fi_msg_rma* msg;
     ofi_window_t*      wnd;
-    int cur_iov_idx;
+    int                cur_iov_idx;
+    void**             src_array;
+    void**             dst_array;
+    comex_giov_t*      iov;
+    int                iov_len;
 } strided_context_t;
 
 #define ATOMICS_PROTO_TAGMASK    (779L << 32)
@@ -293,13 +258,17 @@ typedef struct acc_data_t
     int                   proc;
 } acc_data_t;
 
-typedef enum ofi_proto_e
+typedef enum op_type_t
 {
-    ofi_proto_rmw_add,
-    ofi_proto_rmw_add_long,
-    ofi_proto_rmw_swap,
-    ofi_proto_rmw_swap_long
-} ofi_proto_e;
+    ot_rma,
+    ot_atomic
+} op_type_t;
+
+typedef enum emulation_type_t
+{
+    et_origin = 0,
+    et_target
+} emulation_type_t;
 
 typedef struct ofi_proto_t
 {

@@ -26,24 +26,27 @@ extern int ARMCI_Default_Proc_Group;
 /* for armci_msg_sel_scope */
 static MPI_Datatype MPI_LONGLONG_INT;
 
+/* Information on nodes */
+extern int _number_of_procs_per_node;
+extern int _my_node_id;
+extern ARMCI_Group ARMCI_Node_group;
+
 static MPI_Comm wc()
 {
+    int check;
     MPI_Comm comm;
-    /*
-    assert(COMEX_SUCCESS == comex_group_comm(COMEX_GROUP_WORLD, &comm));
-    */
-    comex_group_comm(COMEX_GROUP_WORLD, &comm);
+    check = comex_group_comm(COMEX_GROUP_WORLD, &comm);
+    assert(COMEX_SUCCESS == check);
     return comm;
 }
 
 /* undocumented, but used in GA to expose MPI_Comm */
 MPI_Comm armci_group_comm(ARMCI_Group *group)
 {
+    int check;
     MPI_Comm comm;
-    /*
-    assert(COMEX_SUCCESS == comex_group_comm(*group, &comm));
-    */
-    comex_group_comm(*group, &comm);
+    check = comex_group_comm(*group, &comm);
+    assert(COMEX_SUCCESS == check);
     return comm;
 }
 
@@ -68,7 +71,7 @@ static MPI_Datatype armci_type_to_mpi_type(int type)
         mpi_dt = MPI_DOUBLE;
     }
     else {
-        assert(0);
+        comex_error("armci_type_to_mpi_type: unrecognized type", type);
     }
 
     return mpi_dt;
@@ -100,9 +103,21 @@ static MPI_Op armci_op_to_mpi_op(char *op)
     else if (strncmp(op, "or", 2) == 0) {
         result = MPI_BOR;
     }
+    /* these are new */
+    else if ((strncmp(op, "&&", 2) == 0) || (strncmp(op, "land", 4) == 0)) {
+        result = MPI_LAND;
+    }
+    else if ((strncmp(op, "||", 2) == 0) || (strncmp(op, "lor", 3) == 0)) {
+        result = MPI_LOR;
+    }
+    else if ((strncmp(op, "&", 1) == 0) || (strncmp(op, "band", 4) == 0)) {
+        result = MPI_BAND;
+    }
+    else if ((strncmp(op, "|", 1) == 0) || (strncmp(op, "bor", 3) == 0)) {
+        result = MPI_BOR;
+    }
     else {
-        printf("Unsupported gop operation:%s\n",op);
-        assert(0);
+        comex_error("Unsupported gop operation",1);
     }
 
     return result;
@@ -128,7 +143,7 @@ static void do_abs(void *x, int n, int type)
     DO_ABS(ARMCI_FLOAT,     float,      FLT)
     DO_ABS(ARMCI_DOUBLE,    double,     FLT)
     {
-        assert(0);
+        comex_error("unsupported ABS operation", 1);
     }
 #undef ARMCI_ABS_INT
 #undef ARMCI_ABS_FLT
@@ -138,11 +153,10 @@ static void do_abs(void *x, int n, int type)
 
 static MPI_Comm get_comm(ARMCI_Group *group)
 {
+    int check;
     MPI_Comm comm;
-    /*
-    assert(COMEX_SUCCESS == comex_group_comm(*group, &comm));
-    */
-    comex_group_comm(*group, &comm);
+    check = comex_group_comm(*group, &comm);
+    assert(COMEX_SUCCESS == check);
     return comm;
 }
 
@@ -245,7 +259,11 @@ void armci_msg_sel_scope(int scope, void *x, int n, char* op, int type, int cont
     MPI_Comm comm = get_default_comm();
 
     if (SCOPE_NODE == scope) {
+      if (_number_of_procs_per_node == 1) {
         comm = MPI_COMM_SELF;
+      } else {
+        comex_group_comm(ARMCI_Node_group,&comm);
+      }
     }
 
     /* first time this function is called we establish the
@@ -272,7 +290,7 @@ void armci_msg_sel_scope(int scope, void *x, int n, char* op, int type, int cont
         mpi_op = MPI_MAXLOC;
     }
     else {
-        assert(0);
+        comex_error("unsupported armci_msg_sel_scope operation", 1);
     }
 
 #define SELECT(ARMCI_TYPE, C_TYPE, MPI_TYPE)                    \
@@ -296,7 +314,7 @@ void armci_msg_sel_scope(int scope, void *x, int n, char* op, int type, int cont
     SELECT(ARMCI_FLOAT,     float,      MPI_FLOAT_INT)
     SELECT(ARMCI_DOUBLE,    double,     MPI_DOUBLE_INT)
     {
-        assert(0);
+        comex_error("unsupported SELECT operation", 1);
     }
 #undef SELECT
 }
@@ -308,11 +326,13 @@ void armci_msg_bcast_scope(int scope, void* buffer, int len, int root)
         armci_msg_bcast(buffer, len, root);
     }
     else if (SCOPE_NODE == scope) {
+        MPI_Comm comm;
         assert(buffer != NULL);
-        MPI_Bcast(buffer, len, MPI_BYTE, root, MPI_COMM_SELF);
+        comex_group_comm(ARMCI_Node_group,&comm);
+        MPI_Bcast(buffer, len, MPI_BYTE, root, comm);
     }
     else {
-        assert(0);
+        comex_error("unsupported armci_msg_bcast_scope scope", 1);
     }
 }
 
@@ -446,7 +466,11 @@ void armci_msg_reduce(void *x, int n, char *op, int type)
 void armci_msg_reduce_scope(int scope, void *x, int n, char *op, int type)
 {
     if (SCOPE_NODE == scope) {
+      if (_number_of_procs_per_node > 1) {
+        do_gop(x, n, op, type, ARMCI_Node_group);
+      } else {
         do_gop(x, n, op, type, ARMCI_GROUP_SELF);
+      }
     } else {
         do_gop(x, n, op, type, get_default_group());
     }
@@ -456,7 +480,11 @@ void armci_msg_reduce_scope(int scope, void *x, int n, char *op, int type)
 void armci_msg_gop_scope(int scope, void *x, int n, char* op, int type)
 {
     if (SCOPE_NODE == scope) {
+      if (_number_of_procs_per_node > 1) {
+        do_gop(x, n, op, type, ARMCI_Node_group);
+      } else {
         do_gop(x, n, op, type, ARMCI_GROUP_SELF);
+      }
     } else {
         do_gop(x, n, op, type, get_default_group());
     }
@@ -583,37 +611,37 @@ double armci_timer()
 
 void armci_msg_clus_brdcst(void *buf, int len)
 {
-    assert(0);
+    comex_error("armci_msg_clus_brdcst not implemented", 1);
 }
 
 
 void armci_msg_clus_igop(int *x, int n, char* op)
 {
-    assert(0);
+    comex_error("armci_msg_clus_igop not implemented", 1);
 }
 
 
 void armci_msg_clus_fgop(float *x, int n, char* op)
 {
-    assert(0);
+    comex_error("armci_msg_clus_fgop not implemented", 1);
 }
 
 
 void armci_msg_clus_lgop(long *x, int n, char* op)
 {
-    assert(0);
+    comex_error("armci_msg_clus_lgop not implemented", 1);
 }
 
 
 void armci_msg_clus_llgop(long long *x, int n, char* op)
 {
-    assert(0);
+    comex_error("armci_msg_clus_llgop not implemented", 1);
 }
 
 
 void armci_msg_clus_dgop(double *x, int n, char* op)
 {
-    assert(0);
+    comex_error("armci_msg_clus_dgop not implemented", 1);
 }
 
 
@@ -659,7 +687,7 @@ void armci_msg_group_dgop(double *x, int n,char* op, ARMCI_Group *group)
 
 void armci_exchange_address_grp(void *ptr_arr[], int n, ARMCI_Group *group)
 {
-    assert(0);
+    comex_error("armci_exchange_address_grp not implemented", 1);
 #if 0
     MPI_Datatype mpi_datatype;
 
@@ -673,7 +701,7 @@ void armci_exchange_address_grp(void *ptr_arr[], int n, ARMCI_Group *group)
         mpi_datatype = MPI_LONG_LONG;
     }
     else {
-        assert(0);
+        comex_error("armci_exchange_address_grp bad size", 1);
     }
 
     MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL,
@@ -692,7 +720,13 @@ void parmci_msg_group_barrier(ARMCI_Group *group)
 void armci_msg_group_bcast_scope(int scope, void *buf, int len, int root, ARMCI_Group *group)
 {
     if (SCOPE_NODE == scope) {
+      if (_number_of_procs_per_node > 1) {
+        MPI_Comm comm;
+        comex_group_comm(ARMCI_Node_group, &comm);
+        MPI_Bcast(buf, len, MPI_BYTE, root, comm);
+      } else {
         MPI_Bcast(buf, len, MPI_BYTE, root, MPI_COMM_SELF);
+      }
     }
     else {
         int root_sub;
@@ -718,5 +752,5 @@ void armci_msg_group_bcast_scope(int scope, void *buf, int len, int root, ARMCI_
 
 void armci_grp_clus_brdcst(void *buf, int len, int grp_master, int grp_clus_nproc,ARMCI_Group *mastergroup)
 {
-    assert(0);
+    comex_error("armci_grp_clus_brdcst not implemented", 1);
 }
