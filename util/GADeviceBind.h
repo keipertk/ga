@@ -1,5 +1,5 @@
-#if !defined (GADEVICEPROPERTY_H)
-#define GADEVICEPROPERTY_H
+#if !defined (GADEVICEBIND_H)
+#define GADEVICEBIND_H
 
 #include <stdio.h>
 #include <mpi.h>
@@ -19,6 +19,12 @@ void gpu_device_bind()
 {
   int global_rank, local_rank, global_size, local_size, rc, len, num_devices = 0;
   char errstr[MPI_MAX_ERROR_STRING];
+  int flag = 0;
+  MPI_Initialized(&flag);
+  if(!flag) {
+    printf("MPI not initialized! Exiting.\n");
+    exit(1);
+  }
 
   // Assuming MPI has already been initialized
   MPI_Comm_rank(MPI_COMM_WORLD, &global_rank);
@@ -50,4 +56,4 @@ void gpu_device_bind()
 }
 #endif
 
-#endif // GADEVICEPROPERTY_H
+#endif // GADEVICEBIND_H
