@@ -17,8 +17,7 @@ typedef enum _reg_return_t {
  */
 typedef struct _reg_entry_t {
     cmx_handle_t* hdl;
-    void** ptr_array;
-    int rank;                   /**< rank where this region lives */
+    int rank;                   /**< global rank where this region lives */
     void* buf;                  /**< starting address of region */
     size_t len;                 /**< length of region */
     struct _reg_entry_t *next;  /**< next memory region in list */
@@ -32,7 +31,8 @@ typedef struct _reg_entry_t {
 extern reg_return_t reg_entry_init(int nprocs);
 extern reg_return_t reg_entries_destroy();
 extern reg_entry_t *reg_entry_find(int rank, void *buf, int len);
-extern reg_entry_t *reg_entry_insert(int rank, void *buf, int len, cmx_handle_t *hdl);
+extern reg_entry_t *reg_entry_insert(int world_rank, void *buf,
+    int len, cmx_handle_t *hdl);
 extern reg_return_t reg_entry_delete(int rank, void *buf);
 
 #endif /* _REG_WINDOW_H_ */

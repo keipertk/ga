@@ -12,15 +12,15 @@
 typedef int cmxInt;
 
 typedef struct {
-    MPI_Comm world_comm;
-    int rank;
-    int size;
+  MPI_Comm world_comm;
+  int rank;
+  int size;
 } local_state;
 
 typedef struct win_link {
-    struct win_link *next;
-      struct win_link *prev;
-        MPI_Win win;
+  struct win_link *next;
+  struct win_link *prev;
+  MPI_Win win;
 } win_link_t;
 
 typedef struct group_link {

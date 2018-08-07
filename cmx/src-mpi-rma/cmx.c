@@ -12,8 +12,8 @@
 /* Configuration options */
 #define DEBUG 0
 
-/*
 #define USE_MPI_REQUESTS
+/*
 #define USE_MPI_FLUSH_LOCAL
 #define USE_MPI_WIN_ALLOC
 */
@@ -1652,8 +1652,9 @@ int cmx_wait_all(cmx_group_t group)
 #endif
       curr_win = curr_win->next;
     }
+    return CMX_SUCCESS;
   }
-  return CMX_SUCCESS;
+  return CMX_FAILURE;
 }
 
 /**
@@ -2787,7 +2788,7 @@ int cmx_access(cmx_handle_t cmx_hdl, void **buf)
  * @param group CMX group associated with CMX data allocation
  * @return CMX_SUCCESS on success
  */
-int cmx_get_group_from_handle(cmx_handle_t handle, cmx_group_t **group)
+int cmx_get_group_from_handle(cmx_handle_t handle, cmx_group_t *group)
 {
   *group = handle.group;
   return CMX_SUCCESS;

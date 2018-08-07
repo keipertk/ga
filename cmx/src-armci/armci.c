@@ -354,7 +354,7 @@ int PARMCI_Free(void *ptr)
 int ARMCI_Free_group(void *ptr, ARMCI_Group *group)
 {
   reg_entry_t *entry; 
-  int rank, size, ierr, i;
+  int rank, world_rank, size, ierr, i;
   void **allgather_ptrs = NULL;
   void *buf;
   MPI_Comm comm;
@@ -362,7 +362,8 @@ int ARMCI_Free_group(void *ptr, ARMCI_Group *group)
   cmx_group_rank(grp, &rank);
   cmx_group_size(grp, &size);
   cmx_group_comm(grp, &comm);
-  entry = reg_entry_find(rank,ptr,0);
+  cmx_group_translate_world(grp, rank, &world_rank);
+  entry = reg_entry_find(world_rank,ptr,0);
   buf = entry->buf;
   ierr = cmx_free(*(entry->hdl));
   /* Need to clean up all entries corresponding to this allocation
@@ -541,9 +542,6 @@ int ARMCI_Malloc_group(void **ptr_arr, armci_size_t bytes, ARMCI_Group *group)
 
   /* allocate ret_entry_t object for this process */
   reg_entries = malloc(sizeof(reg_entry_t)*comm_size);
-  /*assert(reg_entries) */
-  reg_entries[comm_rank].rank = comm_rank;
-  reg_entries[comm_rank].len = comm_size;
 
   ret = cmx_malloc(handle, bytes, cmx_grp);
   cmx_access(*handle,&buf);
@@ -557,18 +555,17 @@ int ARMCI_Malloc_group(void **ptr_arr, armci_size_t bytes, ARMCI_Group *group)
       sizeof(reg_entry_t), MPI_BYTE, comm);
   for (i=0; i<comm_size; i++) {
     reg_entry_t *node;
-    int world_rank;
-    int ierr;
-    ierr = cmx_group_translate_world(cmx_grp,i,&world_rank);
-    assert(CMX_SUCCESS == ierr);
-    if (i != comm_rank) {
-      reg_entries[i].hdl = handle;
-    }
-    node = reg_entry_insert(world_rank, reg_entries[i].buf, reg_entries[i].len,
-        reg_entries[i].hdl);
+    int ierr, world_rank;
+    reg_entries[i].hdl = handle;
+    cmx_group_translate_world(cmx_grp, i, &world_rank);
+    node = reg_entry_insert(world_rank, reg_entries[i].buf,
+        reg_entries[i].len, reg_entries[i].hdl);
     ptr_arr[i] = reg_entries[i].buf;
   }
   free(reg_entries);
+  if (ret == CMX_SUCCESS) ret = 0;
+  else ret = 1;
+  return ret;
 }
 
 int PARMCI_Malloc(void **ptr_arr, armci_size_t bytes)

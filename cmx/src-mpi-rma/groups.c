@@ -230,6 +230,7 @@ int cmx_group_create(
     MPI_Comm_group(*mpi_comm_child, mpi_group_child);
   }
   *group_child = igroup_child;
+    MPI_Group_rank(*mpi_group_parent, &grp_me);
   return CMX_SUCCESS;
 }
 
@@ -282,21 +283,23 @@ void cmx_group_finalize()
  */
 void cmx_igroup_add_win(cmx_igroup_t *group, MPI_Win win)
 {
-  cmx_igroup_t *current_group_list_item = group;
+  cmx_igroup_t *igroup = group;
   win_link_t *curr_win = NULL;
   win_link_t *new_win = NULL;
 
   /* add window to group. Start by finding last member of window list */
-  curr_win = current_group_list_item->win_list;
+  curr_win = igroup->win_list;
   while (curr_win != NULL && curr_win->next != NULL) {
     curr_win = curr_win->next;
   }
-  new_win = malloc(sizeof(win_link_t));
+  new_win = (win_link_t*)malloc(sizeof(win_link_t));
+  int rank;
+  MPI_Comm_rank(group->comm,&rank);
   if (curr_win == NULL) {
     new_win->next = NULL;
     new_win->prev = NULL;
     new_win->win = win;
-    current_group_list_item->win_list = new_win;
+    igroup->win_list = new_win;
   } else {
     curr_win->next = new_win;
     new_win->next = NULL;

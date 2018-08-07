@@ -180,7 +180,7 @@ extern int cmx_group_translate_world(
  * @param[out] group CMX group associated with CMX data allocation
  * @return CMX_SUCCESS on success
  */
-extern int cmx_get_group_from_handle(cmx_handle_t handle, cmx_group_t **group);
+extern int cmx_get_group_from_handle(cmx_handle_t handle, cmx_group_t *group);
 
 /**
  * A collective communication and operations barrier.

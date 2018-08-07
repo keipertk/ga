@@ -38,7 +38,7 @@ armci_igroup_t* armci_get_igroup_from_group(ARMCI_Group id)
     }
     current_group_list_item = current_group_list_item->next;
   }
-  cmx_error("comex group lookup failed", -1);
+  cmx_error("cmx group lookup failed", -1);
 
   return NULL;
 }
@@ -72,6 +72,8 @@ void iarm_create_group_and_igroup(
       maxID = last_group_list_item->id;
     last_group_list_item = last_group_list_item->next;
   }
+  if (last_group_list_item->id > maxID)
+    maxID = last_group_list_item->id;
 
   /* create, init, and insert the new node for the linked list */
   new_group_list_item = malloc(sizeof(armci_igroup_t));
@@ -80,7 +82,7 @@ void iarm_create_group_and_igroup(
   new_group_list_item->handle_list = NULL;
   last_group_list_item->next = new_group_list_item;
 
-  /* return the group id and comex igroup */
+  /* return the group id and cmx igroup */
   *igroup = new_group_list_item;
   *id = new_group_list_item->id;
 }
@@ -105,7 +107,6 @@ void iarm_igroup_delete(armci_igroup_t *igroup)
     current_group_list_item = previous_group_list_item->next;
     if (current_group_list_item == NULL) {
       printf("Error deleting group: group not found\n");
-      printf("or trying to delete world group\n");
     }
   }
 
@@ -130,10 +131,18 @@ void armci_group_init()
   assert(group_list == NULL);
   _iarm_group_list = malloc(sizeof(armci_igroup_t));
   /* First item in list contains the world group */
-  _iarm_group_list->id = 0;
+  _iarm_group_list->id = -1;
   _iarm_group_list->next = NULL;
   _iarm_group_list->handle_list = NULL;
   _iarm_group_list->group = CMX_GROUP_WORLD;
+  /* Second item in list contains the mirror group */
+  armci_igroup_t *mirror = malloc(sizeof(armci_igroup_t));
+  mirror->id = 0;
+  mirror->next = NULL;
+  mirror->handle_list = NULL;
+  mirror->group = CMX_GROUP_WORLD;
+  /* Create link from world group */
+  _iarm_group_list->next = mirror;
 }
 
 /**
@@ -149,10 +158,9 @@ void armci_group_finalize()
   while (current_group_list_item != NULL) {
     previous_group_list_item = current_group_list_item;
     current_group_list_item = current_group_list_item->next;
+    if (current_group_list_item)
     iarm_igroup_delete(previous_group_list_item);
-    free(previous_group_list_item);
   }
-  free(_iarm_group_list);
   _iarm_group_list = NULL;
 }
 
@@ -247,7 +255,6 @@ void ARMCI_Group_free(ARMCI_Group *id)
   cmx_grp = grp->group;
   cmx_group_free(cmx_grp);
   iarm_igroup_delete(grp);
-  free(grp);
 }
 
 void ARMCI_Group_create_child(
