@@ -53,6 +53,7 @@ if (ENABLE_GPU_MEM)
   find_package(CUDA REQUIRED)
   if(CUDA_FOUND)
     add_definitions(-DCUDA_DEVICE)
+    add_definitions(-DUSE_DEVICE_MEM)
     set(CUDA_SEPARABLE_COMPILATION ON)
     CUDA_SELECT_NVCC_ARCH_FLAGS(ARCH_FLAGS 3.0 3.2 3.5 3.7 5.0 5.2 5.3 6.0 6.1 6.2 7.0)
     list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
@@ -498,6 +499,11 @@ install (TARGETS
   ga
   DESTINATION lib
 )
+
+# -------------------------------------------------------------
+# Include GA Helper Directories
+# -------------------------------------------------------------
+#include_directories(AFTER util)
 
 # -------------------------------------------------------------
 # Subdirectories

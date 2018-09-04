@@ -45,7 +45,6 @@
 #define GA_MIN(a,b) (((a) <= (b)) ? (a) : (b))
 #define GA_ABS(a) (((a) <0) ? -(a) : (a))
 
-
 void *ext_malloc(size_t bytes, int align, char *name) {
   return malloc(bytes);
 }
@@ -58,10 +57,9 @@ void FATR register_ext_memory_() {
   GA_Register_stack_memory(ext_malloc, ext_free);
 }
 
-
-/*\ generate random range for a section of multidimensional array 
+/*\ generate random range for a section of multidimensional array
 \*/
-void get_range( int ndim, int dims[], int lo[], int hi[]) 
+void get_range( int ndim, int dims[], int lo[], int hi[])
 {
     int dim;
     for(dim=0; dim <ndim;dim++){
@@ -77,9 +75,6 @@ void get_range( int ndim, int dims[], int lo[], int hi[])
         }
     }
 }
-
-
-
 
 /*\ generates a new random range similar (same size, different indices)
  *  to the input range for an array with specified dimensions
@@ -100,10 +95,6 @@ void new_range(int ndim, int dims[], int lo[], int hi[],
         assert(diff == (new_hi[dim] -new_lo[dim]+1));
     }
 }
-
-
-
-
 
 /*\ print range of n-dimensional array with two strings before and after
 \*/
@@ -133,7 +124,6 @@ void print_subscript(char *pre,int ndim, int subscript[], char* post)
     }
 }
 
-
 /*\ print a section of a 2-D array of doubles
 \*/
 void print_2D_double(double *a, int ld, int *lo, int *hi)
@@ -144,9 +134,8 @@ int i,j;
        printf("\n");
      }
 }
-          
 
-/*\ initialize array: a[i,j,k,..]=i+100*j+10000*k+ ... 
+/*\ initialize array: a[i,j,k,..]=i+100*j+10000*k+ ...
 \*/
 void init_array_internal(double *a, int ndim, int dims[])
 {
@@ -159,12 +148,12 @@ void init_array_internal(double *a, int ndim, int dims[])
      for(i=0; i<elems; i++){
         int Index = i;
         double field, val;
-        
+
         for(dim = 0; dim < ndim; dim++){
             idx[dim] = Index%dims[dim];
             Index /= dims[dim];
         }
-        
+
                 field=1.; val=0.;
         for(dim=0; dim< ndim;dim++){
             val += field*idx[dim];
@@ -174,7 +163,6 @@ void init_array_internal(double *a, int ndim, int dims[])
         /* printf("(%d,%d,%d)=%6.0f",idx[0],idx[1],idx[2],val); */
     }
 }
-
 
 /*\ compute Index from subscript
  *  assume that first subscript component changes first
@@ -189,7 +177,6 @@ int Index(int ndim, int subscript[], int dims[])
     return idx;
 }
 
-
 void update_subscript(int ndim, int subscript[], int lo[], int hi[], int dims[])
 {
     int i;
@@ -199,25 +186,23 @@ void update_subscript(int ndim, int subscript[], int lo[], int hi[], int dims[])
     }
 }
 
-
-
-int compare_patches_internal(int me, double eps, int ndim, double *array1, 
+int compare_patches_internal(int me, double eps, int ndim, double *array1,
                      int lo1[], int hi1[], int dims1[],
-             double *array2, int lo2[], int hi2[], 
+             double *array2, int lo2[], int hi2[],
                      int dims2[])
 {
-    int i,j, elems=1;    
+    int i,j, elems=1;
     int subscr1[GA_MAX_DIM], subscr2[GA_MAX_DIM];
     double diff,max;
     double *patch1, *patch2;
     Integer idx1, idx2, offset1=0, offset2=0;
 
-        /* compute pointer to first element in patch */ 
-    patch1 = array1 +  Index(ndim, lo1, dims1);    
-    patch2 = array2 +  Index(ndim, lo2, dims2);    
+        /* compute pointer to first element in patch */
+    patch1 = array1 +  Index(ndim, lo1, dims1);
+    patch2 = array2 +  Index(ndim, lo2, dims2);
 
         /* count # of elements & verify consistency of both patches */
-    for(i=0;i<ndim;i++){  
+    for(i=0;i<ndim;i++){
         Integer diff = hi1[i]-lo1[i];
         assert(diff == (hi2[i]-lo2[i]));
         assert(diff < dims1[i]);
@@ -227,10 +212,10 @@ int compare_patches_internal(int me, double eps, int ndim, double *array1,
         subscr2[i]=lo2[i];
     }
 
-    /* compare element values in both patches */ 
-    for(j=0; j< elems; j++){ 
+    /* compare element values in both patches */
+    for(j=0; j< elems; j++){
                 /* calculate element Index from a subscript */
-        idx1 = Index(ndim, subscr1, dims1);    
+        idx1 = Index(ndim, subscr1, dims1);
         idx2 = Index(ndim, subscr2, dims2);
 
         if(j==0){
@@ -242,7 +227,7 @@ int compare_patches_internal(int me, double eps, int ndim, double *array1,
 
                 diff = patch1[idx1] - patch2[idx2];
                 max  = GA_MAX(GA_ABS(patch1[idx1]),GA_ABS(patch2[idx2]));
-                if(max == 0. || max <eps) max = 1.; 
+                if(max == 0. || max <eps) max = 1.;
 
         if(eps < GA_ABS(diff)/max){
             char msg[48], val[48];
@@ -264,7 +249,6 @@ int compare_patches_internal(int me, double eps, int ndim, double *array1,
         return(0);
 }
 
-
 void f2c_adj_indices(Integer fsubscript[], int csubscript[], int n)
 {
 int i;
@@ -277,15 +261,14 @@ int i;
     for(i=0;i<n; i++)csubscript[i]=(int)fsubscript[i];
 }
 
-
 Integer FATR compare_patches_(Integer *me,
-                     double* eps, Integer *ndim, double *array1,    
+                     double* eps, Integer *ndim, double *array1,
                      Integer LO1[], Integer HI1[], Integer DIMS1[],
                      double *array2, Integer LO2[], Integer HI2[],
                      Integer DIMS2[])
 {
-int hi1[GA_MAX_DIM], lo1[GA_MAX_DIM], dims1[GA_MAX_DIM]; 
-int hi2[GA_MAX_DIM], lo2[GA_MAX_DIM], dims2[GA_MAX_DIM]; 
+int hi1[GA_MAX_DIM], lo1[GA_MAX_DIM], dims1[GA_MAX_DIM];
+int hi2[GA_MAX_DIM], lo2[GA_MAX_DIM], dims2[GA_MAX_DIM];
 
     assert((int)*ndim <= GA_MAX_DIM);
 
@@ -296,16 +279,14 @@ int hi2[GA_MAX_DIM], lo2[GA_MAX_DIM], dims2[GA_MAX_DIM];
     f2c_copy_indices(DIMS1, dims1, (int)*ndim);
     f2c_copy_indices(DIMS2, dims2, (int)*ndim);
 
-    return (Integer) compare_patches_internal((int)*me, *eps, (int)*ndim, 
+    return (Integer) compare_patches_internal((int)*me, *eps, (int)*ndim,
                      array1, lo1, hi1, dims1, array2, lo2, hi2, dims2);
 }
-    
 
-
-void scale_patch_internal(double alpha, int ndim, double *patch1, 
+void scale_patch_internal(double alpha, int ndim, double *patch1,
                  int lo1[], int hi1[], int dims1[])
 {
-    int i,j, elems=1;    
+    int i,j, elems=1;
     int subscr1[GA_MAX_DIM];
     Integer idx1, offset1=0;
 
@@ -316,11 +297,11 @@ void scale_patch_internal(double alpha, int ndim, double *patch1,
         subscr1[i]= lo1[i];
     }
 
-    /* scale element values in both patches */ 
-    for(j=0; j< elems; j++){ 
-        
+    /* scale element values in both patches */
+    for(j=0; j< elems; j++){
+
                 /* calculate element Index from a subscript */
-        idx1 = Index(ndim, subscr1, dims1);    
+        idx1 = Index(ndim, subscr1, dims1);
 
         if(j==0){
             offset1 =idx1;
@@ -329,11 +310,10 @@ void scale_patch_internal(double alpha, int ndim, double *patch1,
 
         patch1[idx1] *= alpha;
         update_subscript(ndim, subscr1, lo1,hi1, dims1);
-    }    
+    }
 }
 
-
-void FATR scale_patch_(double *alpha, Integer *ndim, double *patch1, 
+void FATR scale_patch_(double *alpha, Integer *ndim, double *patch1,
                  Integer LO1[], Integer HI1[], Integer DIMS1[])
 {
 int hi1[GA_MAX_DIM], lo1[GA_MAX_DIM], dims1[GA_MAX_DIM];
@@ -344,7 +324,6 @@ int hi1[GA_MAX_DIM], lo1[GA_MAX_DIM], dims1[GA_MAX_DIM];
     f2c_copy_indices(DIMS1, dims1, (int)*ndim);
     scale_patch_internal(*alpha, (int)*ndim, patch1, lo1, hi1, dims1);
 }
-
 
 void FATR init_array_(double *a, Integer *ndim, Integer DIMS[])
 {
@@ -420,7 +399,6 @@ char msg[100];
     print_range_internal(msg,(int)*ndim2, lo2, hi2, "\n");
 }
 
-
 /*
  * Return the no. of bytes that n doubles occupy
  */
@@ -431,7 +409,6 @@ Integer FATR util_mdtob_(Integer *n)
 
   return (Integer) (*n * sizeof(double));
 }
-
 
 /*
  * Return the no. of bytes that n ints=Integers occupy
@@ -444,13 +421,12 @@ Integer FATR util_mitob_(Integer *n)
   return (Integer) (*n * sizeof(Integer));
 }
 
-
 double FATR util_timer_()
 {
     return MP_TIMER();
 }
 
-void FATR set_ma_use_armci_mem_() 
+void FATR set_ma_use_armci_mem_()
 {
     int retval;
 #if defined(SPARC64_GP) || defined(HPUX64)
@@ -459,6 +435,8 @@ void FATR set_ma_use_armci_mem_()
     if((retval=_putenv("MA_USE_ARMCI_MEM=YES")) != 0)
 #else
     if((retval=setenv("MA_USE_ARMCI_MEM", "YES", 1)) != 0)
-#endif          
+#endif
        GA_Error("setenv failed: insufficient space in the environment",1);
 }
+
+/* Basic linked list type for int value*/
