@@ -59,6 +59,11 @@
 #include "ga-wapi.h"
 #include "thread-safe.h"
 
+#ifdef USE_DEVICE_MEM
+#include <cuda.h>
+#include <cuda_runtime.h>
+#endif
+
 static int calc_maplen(int handle);
 
 #ifdef PROFILE_OLD
@@ -145,8 +150,15 @@ Integer *mapALL;
 static Integer _mirror_gop_grp;
 
 /* Function prototypes */
+#ifdef USE_DEVICE_MEM
+// int gai_getmem(char* name, char **ptr_arr, C_Long bytes, int type, long *id,
+//                int grp_id, char **gpu_ptr_arr, int dev_count);
+int gai_getmem(char* name, char **ptr_arr, C_Long bytes, int type, long *id,
+               int grp_id, int onDevice);
+#else
 int gai_getmem(char* name, char **ptr_arr, C_Long bytes, int type, long *id,
                int grp_id);
+#endif
 #ifdef ENABLE_CHECKPOINT
 static int ga_group_is_for_ft=0;
 int ga_spare_procs;
@@ -302,6 +314,10 @@ void pnga_initialize()
     GA_Internal_Threadsafe_Lock();
 Integer  i, j,nproc, nnode, zero;
 int bytes;
+#ifdef USE_DEVICE_MEM
+int deviceCount;
+deviceCount = 0;
+#endif
 
     if(GAinitialized)
     {
@@ -352,6 +368,7 @@ int bytes;
     PGRP_LIST = _proc_list_main_data_structure;
 #ifdef USE_DEVICE_MEM
     _ga_active_data_block = NULL;
+    cudaGetDeviceCount(&deviceCount);
 #endif
     for(i=0;i<MAX_ARRAYS; i++) {
        GA[i].ptr  = (char**)0;
@@ -361,6 +378,10 @@ int bytes;
        GA[i].property = NO_PROPERTY;
 #ifdef ENABLE_CHECKPOINT
        GA[i].record_id = 0;
+#endif
+#ifdef USE_DEVICE_MEM
+       /* initialize variable */
+       GA[i].dev_count = deviceCount;
 #endif
        PGRP_LIST[i].map_proc_list = (int*)0;
        PGRP_LIST[i].inv_map_proc_list = (int*)0;
@@ -430,7 +451,11 @@ int bytes;
     GA_Update_Flags = (int**)malloc(GAnproc*sizeof(void*));
     if (!GA_Update_Flags)
       pnga_error("ga_init: Failed to initialize GA_Update_Flags",(int)GAme);
+#ifdef USE_DEVICE_MEM
+    if (ARMCI_Malloc((void**)GA_Update_Flags, (armci_size_t) bytes, 0))
+#else
     if (ARMCI_Malloc((void**)GA_Update_Flags, (armci_size_t) bytes))
+#endif
       pnga_error("ga_init:Failed to initialize memory for update flags",GAme);
     if(GA_Update_Flags[GAme]==NULL)pnga_error("ga_init:ARMCIMalloc failed",GAme);
 
@@ -439,6 +464,7 @@ int bytes;
 
     /* Zero update flags */
     for (i=0; i<2*MAXDIM; i++) {
+
 		GA_Update_Flags[GAme][i] = 0;
 	}
 
@@ -1338,6 +1364,10 @@ Integer pnga_create_handle()
   GA[ga_handle].property = NO_PROPERTY;
 #ifdef USE_DEVICE_MEM
   llist_insert(&_ga_active_data_block, ga_handle);
+  if(GA[ga_handle].dev_count){
+    /* Use Only one GPU for now */
+    GA[ga_handle].dev_id[0] = 0;
+  }
 #endif
   return g_a;
 }
@@ -1962,8 +1992,22 @@ void pnga_set_property(Integer g_a, char* property) {
     /* allocate memory */
     if (status) {
       /* Allocate new memory */
+#ifdef USE_DEVICE_MEM
+//       status = !gai_getmem(GA[ga_handle].name, GA[ga_handle].ptr,mem_size,
+//           GA[ga_handle].type, &GA[ga_handle].id, handle, GA[ga_handle].gpu_ptr, GA[ga_handle].dev_count);
+      int onDevice = 0;  // allocate memory on device
+      // if(_my_node_id == 0) {
+      //   onDevice = 1;
+      //   status = !gai_getmem(GA[ga_handle].name, GA[ga_handle].ptr,mem_size,
+      //       GA[ga_handle].type, &GA[ga_handle].id, handle, onDevice);
+      // } else {
+        status = !gai_getmem(GA[ga_handle].name, GA[ga_handle].ptr,mem_size,
+            GA[ga_handle].type, &GA[ga_handle].id, handle, onDevice);
+      // }
+#else
       status = !gai_getmem(GA[ga_handle].name, GA[ga_handle].ptr,mem_size,
           GA[ga_handle].type, &GA[ga_handle].id, handle);
+#endif
     } else {
       GA[ga_handle].ptr[grp_me]=NULL;
     }
@@ -2111,8 +2155,16 @@ void pnga_unset_property(Integer g_a) {
     GA[ga_handle].p_handle = GA[ga_handle].old_handle;
     if (status) {
       /* Allocate new memory */
+#ifdef USE_DEVICE_MEM
+//       status = !gai_getmem(GA[ga_handle].name, GA[ga_handle].ptr,mem_size,
+//           GA[ga_handle].type, &GA[ga_handle].id, GA[ga_handle].p_handle, GA[ga_handle].gpu_ptr, GA[ga_handle].dev_count);
+      int onDevice = 0;
+      status = !gai_getmem(GA[ga_handle].name, GA[ga_handle].ptr,mem_size,
+          GA[ga_handle].type, &GA[ga_handle].id, GA[ga_handle].p_handle, onDevice);
+#else
       status = !gai_getmem(GA[ga_handle].name, GA[ga_handle].ptr,mem_size,
           GA[ga_handle].type, &GA[ga_handle].id, GA[ga_handle].p_handle);
+#endif
     } else {
       GA[ga_handle].ptr[grp_me]=NULL;
     }
@@ -2408,8 +2460,27 @@ logical pnga_allocate(Integer g_a)
   }else status = 1;
 
   if (status) {
+// #ifdef USE_DEVICE_MEM
+//     status = !gai_getmem(GA[ga_handle].name, GA[ga_handle].ptr,mem_size,
+//                              GA[ga_handle].type, &GA[ga_handle].id, p_handle, GA[ga_handle].gpu_ptr, GA[ga_handle].dev_count);
+// #else
+#ifdef USE_DEVICE_MEM
+    int onDevice = 0;
+    if(_my_node_id == 0) {
+      onDevice = 1;
+      status = !gai_getmem(GA[ga_handle].name, GA[ga_handle].ptr,mem_size,
+                             GA[ga_handle].type, &GA[ga_handle].id, p_handle, onDevice);
+      GA[ga_handle].dev_has_data = 1;
+    }
+    else
+      status = !gai_getmem(GA[ga_handle].name, GA[ga_handle].ptr,mem_size,
+                             GA[ga_handle].type, &GA[ga_handle].id, p_handle, onDevice);
+#else
     status = !gai_getmem(GA[ga_handle].name, GA[ga_handle].ptr,mem_size,
                              GA[ga_handle].type, &GA[ga_handle].id, p_handle);
+#endif
+
+// #endif
   } else {
      GA[ga_handle].ptr[grp_me]=NULL;
   }
@@ -2436,7 +2507,11 @@ logical pnga_allocate(Integer g_a)
   }
   int *d_a;
   int my_size = 10;
+/*
+#ifdef USE_DEVICE_MEM
   gpu_mem_alloc(d_a, my_size);
+#endif
+*/
 
   return status;
 }
@@ -2657,10 +2732,19 @@ logical status;
 /*\ get memory alligned w.r.t. MA base
  *  required on Linux as g77 ignores natural data alignment in common blocks
 \*/
+#ifdef USE_DEVICE_MEM
+// int gai_get_shmem(char **ptr_arr, C_Long bytes, int type, long *adj,
+// 		  int grp_id, char **ptr_gpu, int dev_count)
+int gai_get_shmem(char **ptr_arr, C_Long bytes, int type, long *adj,
+		  int grp_id, int onDevice)
+#else
 int gai_get_shmem(char **ptr_arr, C_Long bytes, int type, long *adj,
 		  int grp_id)
+#endif
 {
 int status=0;
+if(GAme == 0)
+  printf("I am rank 0!\n");
 #ifndef _CHECK_MA_ALGN
 char *base;
 long diff, item_size;
@@ -2701,7 +2785,21 @@ int i, nproc,grp_me=GAme;
 				   &PGRP_LIST[grp_id].group);
     } else
 #endif
+
+#ifdef USE_DEVICE_MEM
+      status = ARMCI_Malloc((void**)ptr_arr, (armci_size_t)bytes, onDevice);
+#else
       status = ARMCI_Malloc((void**)ptr_arr, (armci_size_t)bytes);
+#endif
+/*
+#ifdef USE_DEVICE_MEM
+    // Allocate on GPU as well
+    // TODO Pass Device id here
+    int deviceId = 0;
+    int status2;
+      status2 = ARMCI_MallocG((void**)ptr_gpu, (armci_size_t)bytes, deviceId);
+#endif
+*/
 
     if(bytes!=0 && ptr_arr[grp_me]==NULL)
        pnga_error("gai_get_shmem: ARMCI Malloc failed", GAme);
@@ -2710,6 +2808,8 @@ int i, nproc,grp_me=GAme;
 #ifndef _CHECK_MA_ALGN
 
     /* adjust all addresses if they are not alligned on corresponding nodes*/
+
+    /* TODO Verify if Device memory alignment is required. */
 
     /* we need storage for GAnproc*sizeof(Integer) */
     /* JAD -- fixed bug where _ga_map was reused before gai_getmem was done
@@ -2744,11 +2844,23 @@ int gai_uses_shm(int grp_id)
       return ARMCI_Uses_shm();
 }
 
+#ifdef USE_DEVICE_MEM
+// int gai_getmem(char* name, char **ptr_arr, C_Long bytes, int type, long *id,
+// 	       int grp_id, char **ptr_gpu, int dev_count)
+int gai_getmem(char* name, char **ptr_arr, C_Long bytes, int type, long *id,
+	       int grp_id, int onDevice)
+#else
 int gai_getmem(char* name, char **ptr_arr, C_Long bytes, int type, long *id,
 	       int grp_id)
+#endif
 {
 #ifdef AVOID_MA_STORAGE
+  #ifdef USE_DEVICE_MEM
+//    return gai_get_shmem(ptr_arr, bytes, type, id, grp_id, ptr_gpu, dev_count);
+   return gai_get_shmem(ptr_arr, bytes, type, id, grp_id, onDevice);
+  #else
    return gai_get_shmem(ptr_arr, bytes, type, id, grp_id);
+  #endif
 #else
 Integer handle = INVALID_MA_HANDLE, index;
 Integer nproc=GAnproc, grp_me=GAme, item_size = GAsizeofM(type);
@@ -2760,7 +2872,13 @@ char *ptr = (char*)0;
      grp_me = PGRP_LIST[grp_id].map_proc_list[GAme];
    }
 
-   if(gai_uses_shm(grp_id)) return gai_get_shmem(ptr_arr, bytes, type, id, grp_id);
+   if(gai_uses_shm(grp_id)) {
+  #ifdef USE_DEVICE_MEM
+      return gai_get_shmem(ptr_arr, bytes, type, id, grp_id, onDevice);
+  #else
+      return gai_get_shmem(ptr_arr, bytes, type, id, grp_id);
+  #endif
+   }
    else{
      nelem = bytes/((C_Long)item_size) + 1;
      if(bytes)
@@ -2803,6 +2921,11 @@ char *ptr = (char*)0;
 void *GA_Getmem(int type, int nelem, int grp_id)
 {
 char **ptr_arr=(char**)0;
+#ifdef USE_DEVICE_MEM
+char **ptr_gpu_arr=(char**)0;
+// TODO: find actual devices count
+int dev_count = 0;
+#endif
 int  rc,i;
 long id;
 int bytes;
@@ -2820,7 +2943,13 @@ Integer status;
      }else status = 1;
 
      ptr_arr=malloc(GAnproc*sizeof(char**));
+#ifdef USE_DEVICE_MEM
+//      rc= gai_getmem("ga_getmem", ptr_arr,(Integer)bytes+extra, type, &id, grp_id, ptr_gpu_arr, dev_count);
+     int onDevice = 0;
+     rc= gai_getmem("ga_getmem", ptr_arr,(Integer)bytes+extra, type, &id, grp_id, onDevice);
+#else
      rc= gai_getmem("ga_getmem", ptr_arr,(Integer)bytes+extra, type, &id, grp_id);
+#endif
      if(rc)pnga_error("ga_getmem: failed to allocate memory",bytes+extra);
 
      myptr = ptr_arr[GAme];
@@ -2927,8 +3056,22 @@ logical pnga_has_ghosts(Integer g_a)
 Integer pnga_ndim(Integer g_a)
 {
       ga_check_handleM(g_a,"ga_ndim");
-      return GA[g_a +GA_OFFSET].ndim;
+      return GA[g_a + GA_OFFSET].ndim;
 }
+
+#ifdef USE_DEVICE_MEM
+Integer pnga_dev_has_data(Integer g_a)
+{
+      ga_check_handleM(g_a,"ga_dev_has_data");
+      return GA[g_a + GA_OFFSET].dev_has_data;
+}
+
+C_Long pnga_data_size(Integer g_a)
+{
+      ga_check_handleM(g_a,"ga_data_size");
+      return GA[g_a + GA_OFFSET].size;
+}
+#endif
 
 /**
  * Duplicate an existing global array
@@ -3024,9 +3167,20 @@ logical pnga_duplicate(Integer g_a, Integer *g_b, char* array_name)
 
   if(status)
   {
+#ifdef USE_DEVICE_MEM
+// TODO: Note: Duplication on device disabled
+//     status = !gai_getmem(array_name, GA[ga_handle].ptr,mem_size,
+//         (int)GA[ga_handle].type, &GA[ga_handle].id,
+//         (int)grp_id, GA[ga_handle].gpu_ptr, GA[ga_handle].dev_count);
+    int onDevice = 0;
+    status = !gai_getmem(array_name, GA[ga_handle].ptr,mem_size,
+        (int)GA[ga_handle].type, &GA[ga_handle].id,
+        (int)grp_id, onDevice);
+#else
     status = !gai_getmem(array_name, GA[ga_handle].ptr,mem_size,
         (int)GA[ga_handle].type, &GA[ga_handle].id,
         (int)grp_id);
+#endif
 }
   else{
     GA[ga_handle].ptr[grp_me]=NULL;
@@ -3222,7 +3376,16 @@ int local_sync_begin,local_sync_end;
       }
       else
 #endif
+
+#ifdef USE_DEVICE_MEM
+   if((_my_node_id == 0) && (GA[ga_handle].dev_has_data == 1)){
+    ARMCI_Free_Device(GA[ga_handle].ptr[GAme]);
+   } else {
+	  ARMCI_Free(GA[ga_handle].ptr[GAme] - GA[ga_handle].id);
+   }
+#else
 	 ARMCI_Free(GA[ga_handle].ptr[GAme] - GA[ga_handle].id);
+#endif
 #ifndef AVOID_MA_STORAGE
     }else{
       if(GA[ga_handle].id != INVALID_MA_HANDLE) MA_free_heap(GA[ga_handle].id);

@@ -4,7 +4,7 @@
 # description: implements a primative CMake build that can be used to build
 #              GA on Windows-based systems. Only MPI-based runtimes are
 #              supported.
-# 
+#
 # DISCLAIMER
 #
 # This material was prepared as an account of work sponsored by an

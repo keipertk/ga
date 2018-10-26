@@ -131,6 +131,13 @@ extern void pnga_access_idx(Integer g_a, Integer *lo, Integer *hi,
                             AccessIndex *index, Integer *ld);
 extern void pnga_access_ptr(Integer g_a, Integer *lo, Integer *hi, void *ptr,
                             Integer *ld);
+#ifdef USE_DEVICE_MEM
+extern Integer pnga_dev_has_data(Integer g_a);
+/* Get Data Size in bytes */
+// extern C_Long pnga_data_size(Integer g_a);
+extern long pnga_data_size(Integer g_a);
+extern void pnga_access_dev_ptr(Integer g_a, void *ptr);
+#endif
 extern void pnga_access_block_idx(Integer g_a, Integer idx,
                                   AccessIndex* index, Integer *ld);
 extern void pnga_access_block_ptr(Integer g_a, Integer idx, void* ptr,
@@ -152,6 +159,10 @@ extern void pnga_gather(Integer g_a, void* v, void *subscript,
                         Integer c_flag, Integer nv);
 extern void pnga_get(Integer g_a, Integer *lo, Integer *hi,
                      void *buf, Integer *ld);
+#ifdef USE_DEVICE_MEM
+extern void pnga_dev_host_copy(void* dest, void* src, size_t size);
+#endif
+
 extern void pnga_init_fence();
 extern void pnga_nbacc(Integer g_a, Integer *lo, Integer *hi, void *buf,
                        Integer *ld, void *alpha, Integer *nbhndl);

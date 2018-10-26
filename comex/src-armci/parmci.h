@@ -27,7 +27,14 @@ extern int    PARMCI_Init_args(int *argc, char ***argv);
 extern int    PARMCI_Initialized();
 extern void   PARMCI_Lock(int mutex, int proc);
 extern void*  PARMCI_Malloc_local(armci_size_t bytes);
+#ifdef USE_DEVICE_MEM
+extern int    PARMCI_Malloc(void **ptr_arr, armci_size_t bytes, int onDev);
+extern int    PARMCI_MallocG(void **ptr_gpu_arr, armci_size_t bytes, int dev_id);
+extern void   PARMCI_DevHostCopy(void* dest, void* host, size_t size);
+extern int    PARMCI_Free_Device(void *ptr);
+#else
 extern int    PARMCI_Malloc(void **ptr_arr, armci_size_t bytes);
+#endif
 extern void*  PARMCI_Memat(armci_meminfo_t * meminfo, long offset);
 extern void   PARMCI_Memctl(armci_meminfo_t *meminfo);
 extern void   PARMCI_Memget(size_t bytes, armci_meminfo_t * meminfo, int memflg);

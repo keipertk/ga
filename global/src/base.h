@@ -20,6 +20,7 @@ extern int gpu_count;               /* gpu count for this host*/
 
 #define FNAM        31              /* length of array names   */
 #define CACHE_SIZE  512             /* size of the cache inside GA DS*/
+#define MAX_GPU 32                  /* max number of gpus per node */
 
 #ifdef __crayx1
 #define __CRAYX1_PRAGMA _Pragma
@@ -92,7 +93,11 @@ typedef struct {
        int record_id;               /* record id for writing ga to disk     */
 #endif
 #ifdef USE_DEVICE_MEM
-       int *gpu_id;                  /* gpu ids, bound for this type        */
+//       int local_rank;              /* local rank of the process           */
+       Integer dev_count;               /* total gpu count on the host          */
+       int dev_id[MAX_GPU];         /* gpu ids, bound for this type         */
+       // char **dev_ptr;              /* ptr for gpu allocation               */
+       Integer dev_has_data;            /* flag that device has data */
 #endif
 } global_array_t;
 

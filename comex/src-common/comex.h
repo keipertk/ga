@@ -21,6 +21,10 @@ typedef int comex_request_t;
 
 typedef int comex_group_t;
 
+#ifdef USE_DEVICE_MEM
+extern int _my_node_id;
+#endif
+
 #define COMEX_GROUP_WORLD 0
 #define COMEX_GROUP_NULL -1
 
@@ -102,7 +106,7 @@ extern int comex_group_create(
 /**
  * Marks the group for deallocation.
  *
- * @param[in] group group to be destroyed
+  @param[in] group group to be destroyed
  * @return COMEX_SUCCESS on sucess
  */
 extern int comex_group_free(comex_group_t group);
@@ -142,9 +146,9 @@ extern int comex_group_comm(comex_group_t group, MPI_Comm *comm);
  * Translates the ranks of processes in one group to those in another group.
  *
  * @param[in] n the number of ranks in the ranks_from and ranks_to arrays
- * @param[in] group_from the group to translate ranks from 
+ * @param[in] group_from the group to translate ranks from
  * @param[in] ranks_from array of zer or more valid ranks in group_from
- * @param[in] group_to the group to translate ranks to 
+ * @param[in] group_to the group to translate ranks to
  * @param[out] ranks_to array of corresponding ranks in group_to
  * @return COMEX_SUCCESS on sucess
  */
@@ -517,13 +521,36 @@ extern int comex_nbgetv(
  * @param[in] group the group to which the calling process belongs
  * @return COMEX_SUCCESS on success
  */
+#ifdef USE_DEVICE_MEM
+extern int comex_malloc(
+        void **ptr_arr, size_t bytes, int onDevice, comex_group_t group);
+#else
 extern int comex_malloc(
         void **ptr_arr, size_t bytes, comex_group_t group);
+#endif
+
+/**
+ * Collective allocation of registered gpu memory and exchange of addresses (considering multiple gpu per node).
+ *
+ * @param[out] gptr_arr array of memory addresses
+ *             w.r.t. each process's address space
+ *             for the corresponding gpu
+ * @param[in] bytes how many bytes to allocate on a given gpu
+ * @param[in] group the group to which the calling process belongs
+ * @return COMEX_SUCCESS on success
+ */
+#ifdef USE_DEVICE_MEM
+extern int comex_gpu_malloc(
+        void **gptr_arr, size_t bytes, int deviceId, comex_group_t group);
+extern int comex_free_device(void *ptr, comex_group_t group);
+extern int comex_free_device_local(void *ptr);
+#endif
 
 /**
  * Collective free of memory given the original local pointer.
  *
  * @param[in] ptr the original local memory allocated using comex_malloc
+ . @param[in] id of the device where memory is allocated
  * @param[in] group the group to which the calling process belongs
  * @return COMEX_SUCCESS on success
  */
@@ -536,9 +563,15 @@ extern int comex_free(void *ptr, comex_group_t group);
  * communication buffer.
  *
  * @param[in] bytes how many bytes to allocate locally
+ * @param[in] id of the gpu device where allocation happens
  * @return COMEX_SUCCESS on success
  */
-extern void* comex_malloc_local(size_t bytes);
+#ifdef USE_DEVICE_MEM
+// TODO:
+// extern void* comex_device_malloc_local(size_t bytes, int deviceId);
+extern void* comex_device_malloc_local(size_t bytes);
+extern void comex_device_host_memcpy(void* dest, void *src, size_t size);
+#endif
 
 /**
  * Local (noncollective) free of memory allocated by comex_malloc_local.

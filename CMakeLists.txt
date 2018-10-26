@@ -48,10 +48,13 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake-modules")
 message(status "CMAKE_MODULE_PATH: ${CMAKE_MODULE_PATH}")
 include(GlobalArrays)
 
-option(ENABLE_GPU_MEM "Use GPU memory hierarchy" ON)
+option(ENABLE_GPU_MEM "Use GPU memory hierarchy" OFF)
 if (ENABLE_GPU_MEM)
   find_package(CUDA REQUIRED)
   if(CUDA_FOUND)
+    message("CUDA library found")
+    #include(CUDA)
+    message(status "CUDA INCLUDE DIR:" ${CUDA_INCLUDE_DIRS})
     add_definitions(-DCUDA_DEVICE)
     add_definitions(-DUSE_DEVICE_MEM)
     set(CUDA_SEPARABLE_COMPILATION ON)
@@ -477,6 +480,20 @@ if (ENABLE_CRAY_BUILD)
   endif()
 endif()
 
+#if (ENABLE_GPU_MEM)
+#add_library(ga
+#  $<TARGET_OBJECTS:ma>
+#  $<TARGET_OBJECTS:dra>
+#  $<TARGET_OBJECTS:eaf>
+#  $<TARGET_OBJECTS:elio>
+#  $<TARGET_OBJECTS:sf>
+#  $<TARGET_OBJECTS:gaf2c>
+#  $<TARGET_OBJECTS:armci_comex>
+#  $<TARGET_OBJECTS:ga_src>
+#  ${ga_src_cuda}
+#  $<TARGET_OBJECTS:linalg>
+#)
+#else()
 add_library(ga
   $<TARGET_OBJECTS:ma>
   $<TARGET_OBJECTS:dra>
@@ -488,6 +505,7 @@ add_library(ga
   $<TARGET_OBJECTS:ga_src>
   $<TARGET_OBJECTS:linalg>
 )
+#endif()
 # -------------------------------------------------------------
 # Global Arrays library installation
 # -------------------------------------------------------------

@@ -10,7 +10,6 @@
 #include "parmci.h"
 #include "comex.h"
 
-
 extern int ARMCI_Default_Proc_Group;
 MPI_Comm ARMCI_COMM_WORLD;
 
@@ -152,14 +151,10 @@ static void convert_giov(armci_giov_t *a, comex_giov_t *b, int len)
     }
 }
 
-
-
-
 int PARMCI_Acc(int optype, void *scale, void *src, void *dst, int bytes, int proc)
 {
     return comex_acc(optype, scale, src, dst, bytes, proc, COMEX_GROUP_WORLD);
 }
-
 
 int PARMCI_AccS(int optype, void *scale, void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_stride_arr, int *count, int stride_levels, int proc)
 {
@@ -177,7 +172,6 @@ int PARMCI_AccS(int optype, void *scale, void *src_ptr, int *src_stride_arr, voi
   return iret;
 }
 
-
 int PARMCI_AccV(int op, void *scale, armci_giov_t *darr, int len, int proc)
 {
     int rc;
@@ -188,7 +182,6 @@ int PARMCI_AccV(int op, void *scale, armci_giov_t *darr, int len, int proc)
     return rc;
 }
 
-
 /* fence is always on the world group */
 void PARMCI_AllFence()
 {
@@ -196,7 +189,6 @@ void PARMCI_AllFence()
     rc = comex_fence_all(COMEX_GROUP_WORLD);
     assert(COMEX_SUCCESS == rc);
 }
-
 
 void PARMCI_GroupFence(ARMCI_Group *group)
 {
@@ -209,7 +201,6 @@ void PARMCI_GroupFence(ARMCI_Group *group)
   assert(COMEX_SUCCESS == rc);
 }
 
-
 void PARMCI_Barrier()
 {
     int rc;
@@ -217,18 +208,15 @@ void PARMCI_Barrier()
     assert(COMEX_SUCCESS == rc);
 }
 
-
 int PARMCI_Create_mutexes(int num)
 {
     return comex_create_mutexes(num);
 }
 
-
 int PARMCI_Destroy_mutexes()
 {
     return comex_destroy_mutexes();
 }
-
 
 /* fence is always on the world group */
 void PARMCI_Fence(int proc)
@@ -236,36 +224,37 @@ void PARMCI_Fence(int proc)
     comex_fence_proc(proc, COMEX_GROUP_WORLD);
 }
 
-
 void PARMCI_Finalize()
 {
     comex_finalize();
 }
-
 
 int PARMCI_Free(void *ptr)
 {
     return comex_free(ptr, ARMCI_Default_Proc_Group);
 }
 
+#ifdef USE_DEVICE_MEM
+int PARMCI_Free_Device(void *ptr)
+{
+    return comex_free_device(ptr, ARMCI_Default_Proc_Group);
+}
+#endif
 
 int ARMCI_Free_group(void *ptr, ARMCI_Group *group)
 {
     return comex_free(ptr, *group);
 }
 
-
 int PARMCI_Free_local(void *ptr)
 {
     return comex_free_local(ptr);
 }
 
-
 int PARMCI_Get(void *src, void *dst, int bytes, int proc)
 {
     return comex_get(src, dst, bytes, proc, COMEX_GROUP_WORLD);
 }
-
 
 int PARMCI_GetS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_stride_arr, int *count, int stride_levels, int proc)
 {
@@ -283,7 +272,6 @@ int PARMCI_GetS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_stri
   return iret;
 }
 
-
 int PARMCI_GetV(armci_giov_t *darr, int len, int proc)
 {
     int rc;
@@ -294,7 +282,6 @@ int PARMCI_GetV(armci_giov_t *darr, int len, int proc)
     return rc;
 }
 
-
 double PARMCI_GetValueDouble(void *src, int proc)
 {
     int rc;
@@ -303,7 +290,6 @@ double PARMCI_GetValueDouble(void *src, int proc)
     assert(COMEX_SUCCESS == rc);
     return val;
 }
-
 
 float PARMCI_GetValueFloat(void *src, int proc)
 {
@@ -314,7 +300,6 @@ float PARMCI_GetValueFloat(void *src, int proc)
     return val;
 }
 
-
 int PARMCI_GetValueInt(void *src, int proc)
 {
     int rc;
@@ -324,7 +309,6 @@ int PARMCI_GetValueInt(void *src, int proc)
     return val;
 }
 
-
 long PARMCI_GetValueLong(void *src, int proc)
 {
     int rc;
@@ -333,7 +317,6 @@ long PARMCI_GetValueLong(void *src, int proc)
     assert(COMEX_SUCCESS == rc);
     return val;
 }
-
 
 int PARMCI_Init()
 {
@@ -346,7 +329,6 @@ int PARMCI_Init()
     return rc;
 }
 
-
 int PARMCI_Init_args(int *argc, char ***argv)
 {
     int rc = comex_init_args(argc, argv);
@@ -358,36 +340,58 @@ int PARMCI_Init_args(int *argc, char ***argv)
     return rc;
 }
 
-
 int PARMCI_Initialized()
 {
     return comex_initialized();
 }
-
 
 void PARMCI_Lock(int mutex, int proc)
 {
     comex_lock(mutex, proc);
 }
 
-
+#ifdef USE_DEVICE_MEM
+int PARMCI_Malloc(void **ptr_arr, armci_size_t bytes, int onDev)
+{
+    return comex_malloc(ptr_arr, bytes, onDev, ARMCI_Default_Proc_Group);
+}
+#else
 int PARMCI_Malloc(void **ptr_arr, armci_size_t bytes)
 {
     return comex_malloc(ptr_arr, bytes, ARMCI_Default_Proc_Group);
 }
+#endif
 
+#ifdef USE_DEVICE_MEM
+int PARMCI_MallocG(void **ptr_gpu_arr, armci_size_t bytes, int dev_id)
+{
+    // return comex_gpu_malloc(ptr_gpu_arr, bytes, dev_id, ARMCI_Default_Proc_Group);
+#ifdef USE_DEVICE_MEM
+    return comex_malloc(ptr_gpu_arr, bytes, 1, ARMCI_Default_Proc_Group);
+#else
+    return comex_malloc(ptr_gpu_arr, bytes, ARMCI_Default_Proc_Group);
+#endif
+}
+
+void PARMCI_DevHostCopy(void *dest, void *src, size_t size)
+{
+  comex_device_host_memcpy(dest, src, size);
+}
+#endif
 
 int ARMCI_Malloc_group(void **ptr_arr, armci_size_t bytes, ARMCI_Group *group)
 {
+#ifdef USE_DEVICE_MEM
+    return comex_malloc(ptr_arr, bytes, 0, *group);
+#else
     return comex_malloc(ptr_arr, bytes, *group);
+#endif
 }
-
 
 void* PARMCI_Malloc_local(armci_size_t bytes)
 {
     return comex_malloc_local(bytes);
 }
-
 
 void* PARMCI_Memat(armci_meminfo_t *meminfo, long offset)
 {
@@ -404,7 +408,6 @@ void* PARMCI_Memat(armci_meminfo_t *meminfo, long offset)
 
     return ptr;
 }
-
 
 void PARMCI_Memget(size_t bytes, armci_meminfo_t *meminfo, int memflg)
 {
@@ -430,11 +433,9 @@ void PARMCI_Memget(size_t bytes, armci_meminfo_t *meminfo, int memflg)
     /* meminfo->attr       = NULL; */
 }
 
-
 void PARMCI_Memdt(armci_meminfo_t *meminfo, long offset)
 {
 }
-
 
 void PARMCI_Memctl(armci_meminfo_t *meminfo)
 {
@@ -456,8 +457,6 @@ void PARMCI_Memctl(armci_meminfo_t *meminfo)
     /* if(meminfo->attr!=NULL) free(meminfo->attr); */
 }
 
-
-
 int PARMCI_NbAccS(int optype, void *scale, void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_stride_arr, int *count, int stride_levels, int proc, armci_hdl_t *nb_handle)
 {
   int iret;
@@ -475,7 +474,6 @@ int PARMCI_NbAccS(int optype, void *scale, void *src_ptr, int *src_stride_arr, v
   return iret;
 }
 
-
 int PARMCI_NbAccV(int op, void *scale, armci_giov_t *darr, int len, int proc, armci_hdl_t *nb_handle)
 {
     int rc;
@@ -486,12 +484,10 @@ int PARMCI_NbAccV(int op, void *scale, armci_giov_t *darr, int len, int proc, ar
     return rc;
 }
 
-
 int PARMCI_NbGet(void *src, void *dst, int bytes, int proc, armci_hdl_t *nb_handle)
 {
     return comex_nbget(src, dst, bytes, proc, COMEX_GROUP_WORLD, nb_handle);
 }
-
 
 int PARMCI_NbGetS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_stride_arr, int *count, int stride_levels, int proc, armci_hdl_t *nb_handle)
 {
@@ -510,7 +506,6 @@ int PARMCI_NbGetS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_st
   return iret;
 }
 
-
 int PARMCI_NbGetV(armci_giov_t *darr, int len, int proc, armci_hdl_t *nb_handle)
 {
     int rc;
@@ -521,12 +516,10 @@ int PARMCI_NbGetV(armci_giov_t *darr, int len, int proc, armci_hdl_t *nb_handle)
     return rc;
 }
 
-
 int PARMCI_NbPut(void *src, void *dst, int bytes, int proc, armci_hdl_t *nb_handle)
 {
     return comex_nbput(src, dst, bytes, proc, COMEX_GROUP_WORLD, nb_handle);
 }
-
 
 int PARMCI_NbPutS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_stride_arr, int *count, int stride_levels, int proc, armci_hdl_t *nb_handle)
 {
@@ -545,7 +538,6 @@ int PARMCI_NbPutS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_st
   return iret;
 }
 
-
 int PARMCI_NbPutV(armci_giov_t *darr, int len, int proc, armci_hdl_t *nb_handle)
 {
     int rc;
@@ -556,36 +548,30 @@ int PARMCI_NbPutV(armci_giov_t *darr, int len, int proc, armci_hdl_t *nb_handle)
     return rc;
 }
 
-
 int PARMCI_NbPutValueDouble(double src, void *dst, int proc, armci_hdl_t *nb_handle)
 {
     return comex_nbput(&src, dst, sizeof(double), proc, COMEX_GROUP_WORLD, nb_handle);
 }
-
 
 int PARMCI_NbPutValueFloat(float src, void *dst, int proc, armci_hdl_t *nb_handle)
 {
     return comex_nbput(&src, dst, sizeof(float), proc, COMEX_GROUP_WORLD, nb_handle);
 }
 
-
 int PARMCI_NbPutValueInt(int src, void *dst, int proc, armci_hdl_t *nb_handle)
 {
     return comex_nbput(&src, dst, sizeof(int), proc, COMEX_GROUP_WORLD, nb_handle);
 }
-
 
 int PARMCI_NbPutValueLong(long src, void *dst, int proc, armci_hdl_t *nb_handle)
 {
     return comex_nbput(&src, dst, sizeof(long), proc, COMEX_GROUP_WORLD, nb_handle);
 }
 
-
 int PARMCI_Put(void *src, void *dst, int bytes, int proc)
 {
     return comex_put(src, dst, bytes, proc, COMEX_GROUP_WORLD);
 }
-
 
 int PARMCI_PutS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_stride_arr, int *count, int stride_levels, int proc)
 {
@@ -603,20 +589,17 @@ int PARMCI_PutS(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_stri
   return iret;
 }
 
-
 int PARMCI_PutS_flag(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_stride_arr, int *count, int stride_levels, int *flag, int val, int proc)
 {
     assert(0);
     return 0;
 }
 
-
 int PARMCI_PutS_flag_dir(void *src_ptr, int *src_stride_arr, void *dst_ptr, int *dst_stride_arr, int *count, int stride_levels, int *flag, int val, int proc)
 {
     assert(0);
     return 0;
 }
-
 
 int PARMCI_PutV(armci_giov_t *darr, int len, int proc)
 {
@@ -628,30 +611,25 @@ int PARMCI_PutV(armci_giov_t *darr, int len, int proc)
     return rc;
 }
 
-
 int PARMCI_PutValueDouble(double src, void *dst, int proc)
 {
     return comex_put(&src, dst, sizeof(double), proc, COMEX_GROUP_WORLD);
 }
-
 
 int PARMCI_PutValueFloat(float src, void *dst, int proc)
 {
     return comex_put(&src, dst, sizeof(float), proc, COMEX_GROUP_WORLD);
 }
 
-
 int PARMCI_PutValueInt(int src, void *dst, int proc)
 {
     return comex_put(&src, dst, sizeof(int), proc, COMEX_GROUP_WORLD);
 }
 
-
 int PARMCI_PutValueLong(long src, void *dst, int proc)
 {
     return comex_put(&src, dst, sizeof(long), proc, COMEX_GROUP_WORLD);
 }
-
 
 int PARMCI_Put_flag(void *src, void *dst, int bytes, int *f, int v, int proc)
 {
@@ -659,12 +637,10 @@ int PARMCI_Put_flag(void *src, void *dst, int bytes, int *f, int v, int proc)
     return 0;
 }
 
-
 int PARMCI_Rmw(int op, void *ploc, void *prem, int extra, int proc)
 {
     return comex_rmw(op, ploc, prem, extra, proc, COMEX_GROUP_WORLD);
 }
-
 
 int PARMCI_Test(armci_hdl_t *nb_handle)
 {
@@ -675,37 +651,31 @@ int PARMCI_Test(armci_hdl_t *nb_handle)
     return status;
 }
 
-
 void PARMCI_Unlock(int mutex, int proc)
 {
     comex_unlock(mutex, proc);
 }
-
 
 int PARMCI_Wait(armci_hdl_t *nb_handle)
 {
     return comex_wait(nb_handle);
 }
 
-
 int PARMCI_WaitAll()
 {
     return comex_wait_all(COMEX_GROUP_WORLD);
 }
-
 
 int PARMCI_WaitProc(int proc)
 {
     return comex_wait_proc(proc, COMEX_GROUP_WORLD);
 }
 
-
 int parmci_notify(int proc)
 {
     assert(0);
     return 0;
 }
-
 
 int parmci_notify_wait(int proc, int *pval)
 {
@@ -720,7 +690,6 @@ int armci_domain_nprocs(armci_domain_t domain, int id)
 {
     return _number_of_procs_per_node;
 }
-
 
 /**
  * Return ID of node corresponding to glob_proc_id
@@ -737,7 +706,6 @@ int armci_domain_glob_proc_id(armci_domain_t domain, int id, int loc_proc_id)
 {
     return id*_number_of_procs_per_node+loc_proc_id;
 }
-
 
 /**
  * Return ID of node containing calling process
@@ -764,7 +732,6 @@ int armci_domain_count(armci_domain_t domain)
     return size/_number_of_procs_per_node;
 }
 
-
 int armci_domain_same_id(armci_domain_t domain, int proc)
 {
     int rank;
@@ -774,18 +741,15 @@ int armci_domain_same_id(armci_domain_t domain, int proc)
     return (proc/_number_of_procs_per_node == rank/_number_of_procs_per_node);
 }
 
-
 void ARMCI_Error(char *msg, int code)
 {
     comex_error(msg, code);
 }
 
-
 void ARMCI_Set_shm_limit(unsigned long shmemlimit)
 {
     /* ignore */
 }
-
 
 /* Shared memory not implemented */
 int ARMCI_Uses_shm()
@@ -793,12 +757,10 @@ int ARMCI_Uses_shm()
     return 0;
 }
 
-
 int ARMCI_Uses_shm_group()
 {
     return 0;
 }
-
 
 /* Is it memory copy? */
 void PARMCI_Copy(void *src, void *dst, int n)
@@ -807,7 +769,6 @@ void PARMCI_Copy(void *src, void *dst, int n)
     memcpy(dst, src, sizeof(int) * n);
 }
 
-
 /* Group Functions */
 int ARMCI_Uses_shm_grp(ARMCI_Group *group)
 {
@@ -815,29 +776,22 @@ int ARMCI_Uses_shm_grp(ARMCI_Group *group)
     return 0;
 }
 
-
 void ARMCI_Cleanup()
 {
     comex_finalize();
 }
-
 
 /* JAD technically not an error to have empty impl of aggregate methods */
 void ARMCI_SET_AGGREGATE_HANDLE(armci_hdl_t* handle)
 {
 }
 
-
 void ARMCI_UNSET_AGGREGATE_HANDLE(armci_hdl_t* handle)
 {
 }
-
 
 /* Always return 0, since shared memory not implemented yet */
 int ARMCI_Same_node(int proc)
 {
     return 0;
 }
-
-
-

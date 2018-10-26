@@ -79,6 +79,9 @@ include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR}
                     #${PROJECT_SOURCE_DIR}/LinAlg/lapack+blas
                     ${CMAKE_BINARY_DIR}/LinAlg/lapack+blas
 )
+if (ENABLE_GPU_MEM)
+include_directories(BEFORE ${CUDA_INCLUDE_DIRS})
+endif()
 
 set(GA_FILES
   base.c
@@ -114,6 +117,10 @@ set(GA_FILES
   ${GA_FORTRAN_INTERFACE_C_FILES}
   ${GA_FORTRAN_INTERFACE_F_FILES}
 )
+
+if (ENABLE_GPU_MEM)
+set (GA_CUDA_SOURCES ga_util.cu)
+endif()
 
 add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/ga-wapi.h
@@ -173,14 +180,38 @@ CONFIGURE_FILE( ${CMAKE_CURRENT_SOURCE_DIR}/globalp.h
 CONFIGURE_FILE( ${CMAKE_CURRENT_SOURCE_DIR}/gaconfig.h
                 ${CMAKE_CURRENT_BINARY_DIR}/gaconfig.h)
 
-  add_library(ga_src OBJECT
+#endif()
+if (ENABLE_GPU_MEM)
+  set (GA_CUDA_SRCS ga_util.cu)
+
+  SET(CMAKE_CXX_FLAGS_PREVIOUS ${CMAKE_CXX_FLAGS})
+  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC" )
+
+  #cuda_add_library(ga_src SHARED
+  #cuda_add_library(ga_src OBJ
+  cuda_wrap_srcs(ga_src_cuda OBJ
+    #${CMAKE_CURRENT_BINARY_DIR}/ga-wapi.h
+    #${CMAKE_CURRENT_BINARY_DIR}/ga-wapidefs.h
+    #${GA_FILES}
+    ${GA_CUDA_SRCS}
+    #${CUDA_INTERFACE_FILES}
+    )
+
+  SET(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS_PREVIOUS})
+  #target_link_libraries(ga_src ${CUDA_LIBRARIES})
+#else()
+endif()
+
+ add_library(ga_src OBJECT
   ${CMAKE_CURRENT_BINARY_DIR}/ga-wapi.h
   ${CMAKE_CURRENT_BINARY_DIR}/ga-wapidefs.h
   ${GA_FILES}
   ${CUDA_INTERFACE_FILES}
+  ${ga_src_cuda}
   )
 
 target_include_directories(ga_src PUBLIC ${CUDA_INCLUDE_DIRS})
+#target_include_directories(ga_src_cuda PUBLIC ${CUDA_INCLUDE_DIRS})
 
 if(ENABLE_FORTRAN)
   ADD_DEPENDENCIES(ga_src GenerateConfigFH)
@@ -189,7 +220,15 @@ endif()
 # -------------------------------------------------------------
 # Global Arrays header installation
 # -------------------------------------------------------------
+
+set (InstallFiles "")
+
+if (ENABLE_GPU_MEM)
+list(APPEND InstallFiles "ga_util.h")
+endif()
+
 install(FILES
+   ${InstallFiles}
 #  abstract_ops.h
 #  base.h
 #  cnames.h

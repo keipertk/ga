@@ -47,6 +47,11 @@ int row, i, j;
 /* Note: on all current platforms DoublePrecision = double */
 DoublePrecision buf[N], *max_row=NULL;
 
+#ifdef USE_DEVICE_MEM
+local_ptr_t lptr;
+lptr.is_malloced = -1;
+#endif
+
 MPI_Comm WORLD_COMM;
 MPI_Comm ROW_COMM;
 int ilo,ihi, jlo,jhi, ld, prow, pcol;
@@ -68,6 +73,63 @@ int root=0, grp_me=-1;
 
      GA_Zero(g_a);   /* zero the matrix */
 
+     ///* print contents of GA_x
+#ifdef USE_DEVICE_MEM
+     MPI_Barrier(WORLD_COMM);
+     if(pcol < 0 || prow <0)
+    MPI_Comm_split(WORLD_COMM,MPI_UNDEFINED,MPI_UNDEFINED, &ROW_COMM);
+     else
+    MPI_Comm_split(WORLD_COMM, (int)pcol, (int)prow, &ROW_COMM);
+     // double *temp_ptr;
+
+    if(ROW_COMM != MPI_COMM_NULL){
+    double *ptr;
+    MPI_Comm_rank(ROW_COMM, &grp_me);
+    for(row=me; row<n; row+= nproc){
+    /**
+     * simple load balancing:
+     * each process works on a different row in MIMD style
+     */
+    // for(i=0; i<n; i++) buf[i]=(DoublePrecision)(i+row+1);
+    lo[0]=hi[0]=row;
+    lo[1]=ZERO;  hi[1]=n-1;
+    // NGA_Put(g_a, lo, hi, buf, &n);
+    }
+
+     /* GA_print(&g_a);*/
+     NGA_Distribution(g_a, me, lo, hi);
+     ilo=lo[0]; ihi=hi[0];
+     jlo=lo[1]; jhi=hi[1];
+
+     GA_Sync();
+
+    /* each process computes max elements in the block it 'owns' */
+    NGA_Distribution(g_a, me, lo, hi);
+    lo[0]=ilo; hi[0]=ihi;
+    lo[1]=jlo; hi[1]=jhi;
+    NGA_Access(g_a, lo, hi, &lptr, &ld);
+    ptr = (double*)lptr.ptr;
+    /* // Debug Print
+    for(i=0; i<ihi-ilo+1; i++)
+       for(j=0; j<jhi-jlo+1; j++){
+          // if(max_row[i] < ptr[i*ld + j]){
+         // max_row[i] = ptr[i*ld + j];
+          // }
+        printf("GA_a[%d][%d] : %lf\n", i, j, (double)ptr[i*ld + j]);
+       }
+    */
+    // MPI_Reduce(max_row, buf, ihi-ilo+1, MPI_DOUBLE, MPI_MAX,
+    //        root, ROW_COMM);
+
+    }else fprintf(stderr,"process %d not participating\n",me);
+
+    if((lptr.is_malloced) == 1)
+    {
+        free(lptr.ptr);
+        lptr.is_malloced = -1;
+    }
+#endif
+
      if(me==0)printf("Initializing matrix A\n");
      /* fill in matrix A with values: A(i,j) = (i+j) */
      for(row=me; row<n; row+= nproc){
@@ -76,11 +138,61 @@ int root=0, grp_me=-1;
      * each process works on a different row in MIMD style
      */
     for(i=0; i<n; i++) buf[i]=(DoublePrecision)(i+row+1);
+    // for(i=0; i<n; i++) printf("Print buf[%d][%d]:%lf\n",row, i, (DoublePrecision)(i+row+1));
     lo[0]=hi[0]=row;
     lo[1]=ZERO;  hi[1]=n-1;
     NGA_Put(g_a, lo, hi, buf, &n);
      }
+#ifdef USE_DEVICE_MEM
+    if(ROW_COMM != MPI_COMM_NULL){
+    double *ptr;
+    MPI_Comm_rank(ROW_COMM, &grp_me);
+    for(row=me; row<n; row+= nproc){
+    /**
+     * simple load balancing:
+     * each process works on a different row in MIMD style
+     */
+    // for(i=0; i<n; i++) buf[i]=(DoublePrecision)(i+row+1);
+    lo[0]=hi[0]=row;
+    lo[1]=ZERO;  hi[1]=n-1;
+    // NGA_Put(g_a, lo, hi, buf, &n);
+    }
 
+     /* GA_print(&g_a);*/
+     NGA_Distribution(g_a, me, lo, hi);
+     ilo=lo[0]; ihi=hi[0];
+     jlo=lo[1]; jhi=hi[1];
+
+     GA_Sync();
+
+    /* each process computes max elements in the block it 'owns' */
+    NGA_Distribution(g_a, me, lo, hi);
+    lo[0]=ilo; hi[0]=ihi;
+    lo[1]=jlo; hi[1]=jhi;
+    NGA_Access(g_a, lo, hi, &lptr, &ld);
+    ptr = (double*)lptr.ptr;
+    printf("GA_a after put\n");
+    /* // Debug Print
+    for(i=0; i<ihi-ilo+1; i++)
+       for(j=0; j<jhi-jlo+1; j++){
+          // if(max_row[i] < ptr[i*ld + j]){
+         // max_row[i] = ptr[i*ld + j];
+          // }
+
+        printf("GA_a[%d][%d] : %lf\n", i, j, (double)ptr[i*ld + j]);
+       }
+    */
+    // MPI_Reduce(max_row, buf, ihi-ilo+1, MPI_DOUBLE, MPI_MAX,
+    //        root, ROW_COMM);
+
+    }else fprintf(stderr,"process %d not participating\n",me);
+
+    if((lptr.is_malloced) == 1)
+    {
+        free(lptr.ptr);
+        lptr.is_malloced = -1;
+    }
+#endif
      /* GA_print(&g_a);*/
      NGA_Distribution(g_a, me, lo, hi);
      ilo=lo[0]; ihi=hi[0];
@@ -106,42 +218,91 @@ int root=0, grp_me=-1;
      if(me==0)printf("Computing max row elements\n");
      /* create communicator for processes that 'own' A[:,jlo:jhi] */
      MPI_Barrier(WORLD_COMM);
-     if(pcol < 0 || prow <0)
-    MPI_Comm_split(WORLD_COMM,MPI_UNDEFINED,MPI_UNDEFINED, &ROW_COMM);
-     else
-    MPI_Comm_split(WORLD_COMM, (int)pcol, (int)prow, &ROW_COMM);
+     // if(pcol < 0 || prow <0)
+     //  MPI_Comm_split(WORLD_COMM,MPI_UNDEFINED,MPI_UNDEFINED, &ROW_COMM);
+     // else
+     //  MPI_Comm_split(WORLD_COMM, (int)pcol, (int)prow, &ROW_COMM);
 
-     if(ROW_COMM != MPI_COMM_NULL){
+    if(ROW_COMM != MPI_COMM_NULL){
     double *ptr;
     MPI_Comm_rank(ROW_COMM, &grp_me);
 
     /* each process computes max elements in the block it 'owns' */
     lo[0]=ilo; hi[0]=ihi;
     lo[1]=jlo; hi[1]=jhi;
+#ifdef USE_DEVICE_MEM
+    NGA_Access(g_a, lo, hi, &lptr, &ld);
+    ptr = (double*)lptr.ptr;
+#else
     NGA_Access(g_a, lo, hi, &ptr, &ld);
-    for(i=0; i<ihi-ilo+1; i++){
-       for(j=0; j<jhi-jlo+1; j++)
+#endif
+    for(i=0; i<ihi-ilo+1; i++)
+       for(j=0; j<jhi-jlo+1; j++){
+#ifdef USE_DEVICE_MEM
           if(max_row[i] < ptr[i*ld + j]){
          max_row[i] = ptr[i*ld + j];
+#else
+          if(max_row[i] < ptr[i*ld + j]){
+         max_row[i] = ptr[i*ld + j];
+#endif
           }
     }
     MPI_Reduce(max_row, buf, ihi-ilo+1, MPI_DOUBLE, MPI_MAX,
            root, ROW_COMM);
 
-     }else fprintf(stderr,"process %d not participating\n",me);
-     GA_Sync();
+    }else fprintf(stderr,"process %d not participating\n",me);
 
-     /* processes with rank=root in ROW_COMM put results into g_b */
-     ld = 1;
-     if(grp_me == root) {
-    lo[0]=ilo;  hi[0]=ihi;
-    NGA_Put(g_b, lo, hi, buf, &ld);
-     }
+#ifdef USE_DEVICE_MEM
+    if((lptr.is_malloced) == 1)
+    {
+        free(lptr.ptr);
+        lptr.is_malloced = -1;
+    }
+#endif
 
-     GA_Sync();
+    GA_Sync();
+    /* processes with rank=root in ROW_COMM put results into g_b */
+    ld = 1;
+    if(grp_me == root) {
+        lo[0]=ilo;  hi[0]=ihi;
+        NGA_Put(g_b, lo, hi, buf, &ld);
+    }
 
-     if(me==0)printf("Checking the result\n");
-     if(me==0){
+    GA_Sync();
+
+    if(me==0)printf("Checking the result\n");
+#ifdef USE_DEVICE_MEM
+    lptr.is_malloced = -1;
+    if(me==0){
+        lo[0]=ZERO; hi[0]=n-1;
+        // TODO: Make it work with NGA_Get
+        // NGA_Get(g_b, lo, hi, &lptr, &n);
+        NGA_Access(g_b, lo, hi, &lptr, &ld);
+        //buf = (DoublePrecision[N])lptr.ptr;
+        double *ptr;
+        ptr = (double*)lptr.ptr;
+        // buf = (DoublePrecision[N])ptr;
+        for(i=0; i<n; i++)
+            buf[i] = (DoublePrecision)ptr[i];
+
+        for(i=0; i< n; i++) {
+          if(buf[i] != (double)n+i){
+            fprintf(stderr,"error:%d max=%f should be:%d\n",i,buf[i],n+i);
+            GA_Error("terminating...",1);
+          }
+          /*else {
+              printf("2D_GA_b[%d] :%lf\n ", buf[i]);
+          }*/
+        }
+
+        if(lptr.is_malloced == 1)
+        {
+            free(lptr.ptr);
+            lptr.is_malloced = -1;
+        }
+    }
+#else
+    if(me==0){
     lo[0]=ZERO; hi[0]=n-1;
         NGA_Get(g_b, lo, hi, buf, &n);
         for(i=0; i< n; i++)if(buf[i] != (double)n+i){
@@ -149,6 +310,7 @@ int root=0, grp_me=-1;
             GA_Error("terminating...",1);
         }
      }
+#endif
 
      if(me==0)printf("OK\n");
 

@@ -4,7 +4,7 @@
 # description: implements a primative CMake build that can be used to build
 #              GA on Windows-based systems. Only MPI-based runtimes are
 #              supported.
-# 
+#
 # DISCLAIMER
 #
 # This material was prepared as an account of work sponsored by an
@@ -41,6 +41,7 @@ option (COMEX_NETWORK_MPI_PT "use MPI progress threads protocol for communicatio
 include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR}/src-common
                            ${CMAKE_CURRENT_BINARY_DIR}
 )
+include_directories(BEFORE ${CUDA_INCLUDE_DIRS})
 if (MPI_TS)
   set(COMEX_DEVICE
     src-mpi/comex.c
@@ -397,8 +398,6 @@ CHECK_FUNCTION_EXISTS(sched_setaffinity
      HAVE_SCHED_SETAFFINITY)
 CHECK_FUNCTION_EXISTS(pthread_setaffinity_np
      HAVE_PTHREAD_SETAFFINITY_NP)
-
-
 
 # generate config.h header file
 CONFIGURE_FILE( ${CMAKE_CURRENT_SOURCE_DIR}/cmake/config.h.in
