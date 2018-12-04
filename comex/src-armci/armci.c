@@ -109,7 +109,7 @@ void armci_init_domains(MPI_Comm comm)
 int armci_check_contiguous(int *src_stride, int *dst_stride,
     int *count, int n_stride)
 {
-#if 0
+#if 1
   /* This is code from the merge between CMX and the current develop branch
    * (2018/7/5) */
   int i;
@@ -130,8 +130,13 @@ int armci_check_contiguous(int *src_stride, int *dst_stride,
    * be used to evaluate some corner cases
    */
   for (i=0; i<n_stride; i++) {
-<<<<<<< HEAD
-    stridelen *= count[i];
+    /* check for overflow */
+    int tmp = stridelen * count[i];
+    if (stridelen != 0 && tmp / stridelen != count[i]) {
+      ret = 0;
+      break;
+    }
+    stridelen = tmp;
     if ((count[i] < src_ld[i] || count[i] < dst_ld[i])
         && gap == 1) {
       /* Data is definitely strided in memory */
@@ -145,16 +150,6 @@ int armci_check_contiguous(int *src_stride, int *dst_stride,
       /* Found a mismatch between requested block and physical dimensions
        * indicating a possible stride in memory
        * */
-=======
-    /* check for overflow */
-    int tmp = stridelen * count[i];
-    if (stridelen != 0 && tmp / stridelen != count[i]) {
-      ret = 0;
-      break;
-    }
-    stridelen = tmp;
-    if (stridelen < src_stride[i] || stridelen < dst_stride[i]) {
->>>>>>> develop
       ret = 0;
       break;
     }
